@@ -17,7 +17,8 @@
 | 4 | 真实键盘布局 | 内置 **104 全尺寸 ANSI / 87 TKL / 68 小配列** 三套布局，可在托盘或设置中切换，坐标与真实键盘等比例 |
 | 5 | 错误按键统计 | 双口径：① 删除键（Backspace/Delete）按下次数；② 把每次删除归因到"刚打错的那个键"，得出**最常打错的键**排行 |
 | 6 | 开机静默启动 | 写入 `HKCU\...\CurrentVersion\Run`（`--silent`），免管理员；托盘图标进入统计与设置 |
-| 7 | 低占用 | 纯事件驱动、零轮询；按键热路径无锁无堆分配；常驻内存约 25–40 MB，空闲 CPU ≈ 0% |
+| 7 | 全局快捷键 | 可选（默认关闭），组合键在设置中自定义，例如 `Ctrl+Alt+K` 一键唤起面板 |
+| 8 | 低占用 | 纯事件驱动、零轮询；按键热路径无锁无堆分配；常驻内存约 25–40 MB，空闲 CPU ≈ 0% |
 
 ## 技术栈（零第三方依赖）
 
@@ -27,7 +28,7 @@
 | UI | **Qt Widgets + 全自绘（QPainter）** | 常驻内存最低、启动最快；热力图/图表自绘，视觉可控 |
 | 采集 | **Win32 Raw Input（`RIDEV_INPUTSINK`）** | 不注入、不钩挂其他进程，异步低开销，失焦也能收到按键 |
 | 存储 | **SQLite（Qt 自带 QSQLITE 驱动）** | WAL + 批量 upsert，崩溃安全，年数据量约 2 MB |
-| 集成 | QtNetwork(QLocalServer) / QSystemTrayIcon / QSettings(注册表) | 单实例、托盘、自启 |
+| 集成 | QtNetwork(QLocalServer) / QSystemTrayIcon / QSettings(注册表) / RegisterHotKey | 单实例、托盘、自启、全局快捷键 |
 
 不引入任何第三方库：Qt 6.8.2 官方模块 + Win32 API 即全部依赖。
 
@@ -57,4 +58,6 @@ keyCounter/
 ## 隐私
 
 只保存**逐键的聚合计数**（物理键 + 次数）；不保存按键序列、不记录窗口标题/程序名、不联网、不做上报。
-运行数据位于 `%APPDATA%\keyCounter\keycounter.db`，可在设置中一键清空或导出。
+运行数据位于 `%APPDATA%\keyCounter\keycounter.db`，可在设置中一键清空。
+
+> 规划中：数据导出（CSV / PNG）、安装包 —— 均后续版本提供；本期交付免安装绿色目录。

@@ -11,7 +11,9 @@
 | UI 技术栈 | Qt Widgets + 全自绘（QPainter） | 内存 25–40 MB，启动 <300 ms，热力图/图表全部自绘，无 QML 运行时 |
 | 存储 | SQLite（Qt 自带 QSQLITE）+ WAL + 批量 upsert | 崩溃安全、易扩展；内存增量累加，15 s / 退出 / 跨零点时落盘 |
 | 键盘布局 | 内置 104 ANSI、87 TKL、68 小配列，三套可切换 | 布局为声明式 JSON 数据，后续可加自定义布局 |
-| 开机自启 | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` + `--silent` | 免管理员；局限：以普通权限运行，无法统计提权窗口的按键（见 §10.1） |
+| 开机自启 | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` + `--silent` | 免管理员；局限：以普通权限运行，无法统计提权窗口的按键（见 §4.3） |
+| 全局快捷键 | `RegisterHotKey`，**默认关闭**，组合键在设置中由用户自定义 | 例如 `Ctrl+Alt+K` 唤起面板；注册失败提示冲突，不影响其他功能（见 §9.4） |
+| 导出 / 安装包 | **本期搁置** | 仅交付免安装绿色目录；导出接口位置预留 |
 
 ---
 
@@ -24,6 +26,7 @@
 - **稳**：断电/崩溃最多丢最后 15 s 的计数；数据库损坏时可自动隔离重建，不静默清零。
 - **美**：热力虚拟键盘与统计图表自绘，深色主题、圆角卡片、平滑色带、悬停反馈，缩放（DPI）下依旧锐利。
 - **净**：不引入第三方库；不记录按键序列与窗口标题；不联网。
+- **可控**：托盘随手进入；可选全局快捷键唤起面板（默认关闭）；随时暂停统计。
 
 ### 1.2 非目标（v1 明确不做，列入扩展点）
 
@@ -31,7 +34,7 @@
 - 不做云同步、账号、上报。
 - 不做 macOS/Linux 支持（采集层为 Win32 Raw Input；接口保留抽象）。
 - 不做按应用统计（`app_daily` 已在 schema 中预留扩展位，v1.1 视需求加入，需抓前台窗口，成本与隐私权衡后再说）。
-- 不做全局热键（`RegisterHotKey` 会吞掉系统级组合键，违背"不打扰"原则）；若需要，作为默认关闭的选项。
+- 不做数据导出（CSV / PNG）、不做安装包（NSIS/MSI）：**本期搁置**，交付免安装绿色目录；导出接口位置预留（`StatsStore::exportCsv()` / `KeyboardHeatmapWidget::renderToImage()`）。
 
 ---
 
@@ -421,8 +424,9 @@ LayoutModel ──(布局/尺寸变化)──► KeyGeometry[]  (每个键的 QR
 | 页 | 项 |
 |----|----|
 | 常规 | 开机静默自启（开关 + 当前注册表状态）、主题、色带、键盘布局、周起始日（周一/周日）、减少动画 |
+| 快捷键 | 全局快捷键开关（**默认关**）+ 组合键自定义录制（`QKeySequenceEdit`）；拒绝无修饰键的组合；注册失败即提示被占用 |
 | 统计 | 错误统计口径（归因/字面）、暂停状态显示、是否记录时段分布、数据保留年限 |
-| 数据 | 数据目录（可打开）、导出 CSV / 导出 PNG 热力图、清空数据（二次确认）、备份开关与份数 |
+| 数据 | 数据目录（可打开）、清空数据（二次确认）、备份开关与份数（导出功能后续版本提供） |
 | 关于 | 版本、Qt 版本、键盘布局来源、隐私声明、"已知限制"（§4.3） |
 
 ---
@@ -466,6 +470,14 @@ main()
 - 开关状态实时反映真实注册表值（而非本地布尔位），被安全软件/组策略删除后 UI 立即显示"未生效"。
 - 每次启动自愈路径（便携版移动到新目录后自动修正）。
 - v1.1 扩展（非本期）：`schtasks /Create /SC ONLOGON /RL HIGHEST` 以统计提权窗口按键，需一次 UAC 授权。
+
+### 9.4 全局快捷键（可选，默认关闭）
+
+- 实现：`RegisterHotKey(hwndRawInput, id, mods | MOD_NOREPEAT, vk)`，`WM_HOTKEY` 复用 §4.1 的隐藏消息窗口的 WndProc；`UnregisterHotKey` 在关闭开关、修改组合键、退出时调用（`WM_QUERYENDSESSION` 也会注销）。
+- 默认值：开关 **off**，默认组合键预填 `Ctrl+Alt+K`（用户首次打开开关即生效，可再自定义）。
+- 自定义：设置页用 `QKeySequenceEdit` 录制，保存前校验 —— 至少含一个修饰键（Ctrl/Alt/Shift/Win）且主键非纯修饰键；否则提示「全局快捷键必须包含修饰键」（避免吞掉单键影响正常打字）。
+- 冲突处理：`RegisterHotKey` 返回 `FALSE`（`ERROR_HOTKEY_ALREADY_REGISTERED` = 1409）→ 设置页红字提示「该组合键已被其他程序占用」，并回退到上一个可用组合键；托盘菜单同步显示当前快捷键。
+- 语义澄清：快捷键只在按下时唤起/隐藏面板，`MOD_NOREPEAT` 防止长按重复触发；被注册的组合键会从系统中被本进程截获（这是 `RegisterHotKey` 的固有行为，因此在 UI 上明确提示，且默认关闭）。
 
 ---
 
@@ -572,6 +584,8 @@ tools/      deploy.ps1 / build.ps1
 | `general/layout` | string | 首启动引导选择，默认 `ansi-104` |
 | `general/weekStart` | int | 1（周一） |
 | `general/reduceMotion` | bool | false |
+| `general/hotkeyEnabled` | bool | false |
+| `general/hotkeySequence` | string | `Ctrl+Alt+K` |
 | `stats/errorMode` | enum | `attributed`（归因口径） |
 | `stats/trackHours` | bool | true |
 | `stats/retentionYears` | int | 0（永久） |
