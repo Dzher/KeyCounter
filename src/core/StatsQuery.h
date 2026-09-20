@@ -26,6 +26,9 @@ public:
     /// 区间聚合（命中缓存时不触库）；数据量很小，GUI 线程同步查询可接受
     PeriodStats query(const Range& range);
 
+    /// 单个键的逐日序列（下钻用），只含有数据的日期
+    QVector<QPair<int, KeyStat>> keySeries(quint16 pid, const Range& range);
+
     /// 存储层落盘后调用：失效受影响的缓存
     void onDataChanged(quint64 revision, int touchedDay);
 

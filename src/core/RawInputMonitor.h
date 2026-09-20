@@ -9,6 +9,19 @@
 namespace kc
 {
 
+/// 已解析的键盘事件
+struct RawKeyEvent
+{
+    quint16 pid = 0;  ///< (E1<<9)|(E0<<8)|makeCode
+    bool down = false;
+    quint8 vkey = 0;
+};
+
+/// 解析 RAWKEYBOARD 字段（纯函数，便于单测）。
+/// @param flags RAWKEYBOARD::Flags（RI_KEY_BREAK=1, RI_KEY_E0=2, RI_KEY_E1=4）
+/// @return false 表示该事件必须丢弃（VK__none_ / overrun / PrintScreen 伪 Shift）
+bool decodeRawKeyboard(quint8 makeCode, quint16 flags, quint8 vkey, RawKeyEvent* out);
+
 /// 隐藏消息窗口 + Raw Input 注册。全部工作在主线程消息循环内，无额外线程、无轮询。
 class RawInputMonitor : public QObject
 {

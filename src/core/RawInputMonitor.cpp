@@ -92,6 +92,27 @@ quint32 toVirtualKey(int key) noexcept
 
 }  // namespace
 
+bool decodeRawKeyboard(quint8 makeCode, quint16 flags, quint8 vkey, RawKeyEvent* out)
+{
+    const bool down = (flags & RI_KEY_BREAK) == 0;
+    const bool extended = (flags & RI_KEY_E0) != 0;
+    const bool e1 = (flags & RI_KEY_E1) != 0;
+
+    if (vkey == 0xFF || makeCode == 0xFF)
+    {
+        return false;  // VK__none_ / KEYBOARD_OVERRUN_MAKE_CODE
+    }
+    if (extended && (makeCode == 0x2A || makeCode == 0x36))
+    {
+        return false;  // PrintScreen 的伪左右 Shift（真实 Shift 不带 E0）
+    }
+
+    out->pid = encodePid(makeCode, extended, e1);
+    out->down = down;
+    out->vkey = vkey;
+    return true;
+}
+
 RawInputMonitor::RawInputMonitor(QObject* parent) : QObject(parent) {}
 
 RawInputMonitor::~RawInputMonitor()
@@ -202,21 +223,12 @@ void RawInputMonitor::handleRawInput(void* rawInputHandle)
     }
 
     const RAWKEYBOARD& kb = raw.data.keyboard;
-
-    // 伪事件过滤
-    if (kb.VKey == 0xFF || kb.MakeCode == 0xFF)
+    RawKeyEvent event;
+    if (!decodeRawKeyboard(kb.MakeCode, kb.Flags, kb.VKey, &event))
     {
-        return;  // VK__none_ / KEYBOARD_OVERRUN_MAKE_CODE
+        return;
     }
-    const bool extended = (kb.Flags & RI_KEY_E0) != 0;
-    const bool e1 = (kb.Flags & RI_KEY_E1) != 0;
-    if (extended && (kb.MakeCode == 0x2A || kb.MakeCode == 0x36))
-    {
-        return;  // PrintScreen 的伪 Shift（真实左右 Shift 不带 E0）
-    }
-
-    const bool down = (kb.Flags & RI_KEY_BREAK) == 0;
-    emit rawKey(encodePid(kb.MakeCode, extended, e1), down, kb.VKey);
+    emit rawKey(event.pid, event.down, event.vkey);
 }
 
 bool RawInputMonitor::registerHotkey(const QKeySequence& sequence, QString* error)

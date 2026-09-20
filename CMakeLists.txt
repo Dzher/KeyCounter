@@ -58,7 +58,7 @@ if (KC_BUILD_TESTS)
     enable_testing()
 
     # 每个测试类一个可执行文件：QTest 的标准做法，输出不会被后一个类覆盖
-    foreach (kc_test IN ITEMS tst_keycatalog tst_correction tst_periods tst_layouts tst_engine tst_store)
+    foreach (kc_test IN ITEMS tst_keycatalog tst_correction tst_periods tst_layouts tst_engine tst_store tst_rawinput)
         add_executable(${kc_test} tests/${kc_test}.cpp resources/keycounter.qrc)
         target_link_libraries(${kc_test} PRIVATE kccore Qt6::Test)
         add_test(NAME ${kc_test} COMMAND ${kc_test})
@@ -69,6 +69,12 @@ if (KC_BUILD_TESTS)
     # -----------------------------------------------------------------------
     add_executable(keyCounterBench tests/bench_pump.cpp)
     target_link_libraries(keyCounterBench PRIVATE kccore)
+
+    # -----------------------------------------------------------------------
+    # 采集探针（诊断 Raw Input 是否收到按键，开发用）
+    # -----------------------------------------------------------------------
+    add_executable(keyCounterRawProbe tools/rawinput_probe.cpp)
+    target_link_libraries(keyCounterRawProbe PRIVATE kccore)
 endif ()
 
 # ---------------------------------------------------------------------------

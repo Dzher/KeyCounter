@@ -3,7 +3,8 @@
 > 一个常驻 Windows 托盘的按键计数与热力统计工具：统计每个物理按键的按下次数、错误次数，
 > 以「热力虚拟键盘」一眼看出哪些键被高频使用，并按 日 / 周 / 月 / 年 / 累计 周期查看。
 >
-> 状态：**设计评审阶段**（尚未编码）。技术方案见 [docs/DESIGN.md](docs/DESIGN.md)，实施计划见 [docs/PLAN.md](docs/PLAN.md)。
+> 状态：**M0–M4 已完成且可运行**（M5 打磨中）。技术方案见 [docs/DESIGN.md](docs/DESIGN.md)，实施计划与验收记录见 [docs/PLAN.md](docs/PLAN.md)。
+> 界面预览：[docs/preview-heatmap-dark.png](docs/preview-heatmap-dark.png)
 
 ---
 
@@ -32,13 +33,49 @@
 
 不引入任何第三方库：Qt 6.8.2 官方模块 + Win32 API 即全部依赖。
 
-## 构建（编码完成后）
+## 构建（已在本机验证：Qt 6.8.2 msvc2022_64 + MSVC 19.44 + Ninja 1.13.2）
 
 ```powershell
 cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=D:/Qt6/6.8.2/msvc2022_64 -DCMAKE_BUILD_TYPE=Release
 cmake --build build
-powershell -File tools/deploy.ps1        # windeployqt + 打包（含 sqldrivers/qsqlite.dll）
+
+# 运行（未部署时需把 Qt 的 bin 目录加进 PATH）
+$env:PATH = "D:/Qt6/6.8.2/msvc2022_64/bin;$env:PATH"
+.\build\keyCounter.exe            # 打开面板（已有实例时只唤起）
+.\build\keyCounter.exe --silent   # 开机自启用：只在托盘静默运行
+.\build\keyCounter.exe --dump     # 控制台打印今日/本周/本月/今年的汇总与 Top 榜
+
+# 测试与性能基准
+cd build; ctest --output-on-failure    # 7 个测试套件
+.\keyCounterBench.exe 1000000          # 按键热路径微基准
+.\keyCounterRawProbe.exe 15            # 采集探针：实时打印捕获到的按键
 ```
+
+## 界面预览
+
+![热力图面板](docs/preview-heatmap-dark.png)
+
+> 演示数据由 `tools/gen-demo-data.py` 生成（45 天、约 46 万次键击）。
+
+## 开发工具（tools/）
+
+| 工具 | 用途 |
+|------|------|
+| `gen-demo-data.py` | 生成“像真人打字”的演示数据，用于检查热力图配色 |
+| `check-db.py` | 只读查看数据库内容（逐日逐键计数、时段分布、meta） |
+| `inject-test.ps1` | 注入 F13 验证采集链路（真实键盘不会产生该键） |
+| `screenshot-app.ps1` | 无前台窗口也能把主面板截图成 PNG（PrintWindow） |
+| `analyze-shot.py` | 对截图做像素级校验（主题色 / 热力色带命中统计） |
+
+## 实测（Release，本机）
+
+| 指标 | 实测 | 目标 |
+|------|------|------|
+| 按键热路径 | **35 ns/次** | < 2000 ns |
+| 静默托盘态内存 | **28.7 MB 工作集 / 6.9 MB 私有** | < 45 MB |
+| 面板打开内存 | ~100 MB 工作集（Qt GUI + 中文字形缓存） | — |
+| 空闲 CPU | 0%（事件驱动，无轮询） | ≤ 0.05% |
+| 单测 | 7/7 套件通过 | 全绿 |
 
 ## 目录结构（规划）
 

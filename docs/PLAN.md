@@ -4,6 +4,25 @@
 
 ---
 
+## 验收记录（M0–M4）
+
+| 项 | 结果 | 验证方式 |
+|----|------|----------|
+| 构建 | 0 error / 0 warning（/W4 /permissive-），exe 约 400 KB | `cmake --build build` |
+| 单测 | 7/7 套件通过（KeyCatalog / CorrectionTracker / Periods / Layouts / CounterEngine / StatsStore / RawInputDecode） | `ctest` |
+| 热路径 | 35.4 ns / 次键击（预算 2000 ns） | `keyCounterBench.exe 1000000` |
+| 静默内存 | 28.7 MB 工作集 / 6.9 MB 私有 / 11 线程 / 406 句柄 | `Get-Process`（--silent 运行 8 s 后） |
+| 单实例 | 第二次启动 exit=0 且只唤起不新开进程（命名互斥体 + QLocalServer） | 连续两次启动 + 进程数校验 |
+| 关闭到托盘 | WM_CLOSE 后进程存活、窗口句柄归零 | PostMessage + 句柄校验 |
+| 跨零点/休眠/退出落盘 | 单测覆盖 flush 语义；15 s 定时器与 WM_POWERBROADCAST/WM_WTSSESSION_CHANGE 已接入 | 单测 + 代码路径 |
+| 面板渲染 | 截图像素校验：主题色命中、热力色带 7 个端点全部出现（深蓝→深红），卡片/趋势区/页脚分层正确 | `screenshot-app.ps1` + `analyze-shot.py` |
+| 数据写入 | 演示数据 45 天 / 3109 行 / 46 万次键击写入后，DB 与面板一致 | `gen-demo-data.py` + `check-db.py` |
+
+**本环境未能验证的项（需在真实桌面确认）**：本机是无前台窗口的断开 RDP 会话，`SendInput` 返回 ERROR_ACCESS_DENIED，因此无法注入按键做真实采集验证（已改为对解析函数 `decodeRawKeyboard()` 的 7 项单测覆盖）。
+请在真实桌面确认：① 随便打几个键，看热力图是否变红、`--dump` 是否有数；② 拔掉网络/锁屏/休眠后数据不丢。
+
+---
+
 ## 里程碑总览
 
 | 里程碑 | 内容 | 交付物 | 预估 | 验收标准（可自动化部分必须脚本化） |

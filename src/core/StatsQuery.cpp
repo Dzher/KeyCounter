@@ -184,4 +184,32 @@ PeriodStats StatsQuery::query(const Range& range)
     return stats;
 }
 
+QVector<QPair<int, KeyStat>> StatsQuery::keySeries(quint16 pid, const Range& range)
+{
+    QVector<QPair<int, KeyStat>> series;
+    if (!m_open)
+    {
+        return series;
+    }
+
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT day, press, corr FROM key_daily WHERE pid=?1 AND day BETWEEN ?2 AND ?3 "
+                             "ORDER BY day"));
+    q.addBindValue(pid);
+    q.addBindValue(range.startDay);
+    q.addBindValue(range.endDay);
+    if (!q.exec())
+    {
+        return series;
+    }
+    while (q.next())
+    {
+        KeyStat stat;
+        stat.press = q.value(1).toUInt();
+        stat.corr = q.value(2).toUInt();
+        series.append({q.value(0).toInt(), stat});
+    }
+    return series;
+}
+
 }  // namespace kc
