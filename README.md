@@ -51,6 +51,17 @@ cd build; ctest --output-on-failure    # 7 个测试套件
 .\keyCounterRawProbe.exe 15            # 采集探针：实时打印捕获到的按键
 ```
 
+## 打包（免安装绿色目录）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/deploy.ps1
+# → dist/keyCounter/  （约 44 MB：exe + Qt 运行时 + platforms + styles + sqldrivers/qsqlite.dll）
+```
+
+* 必须包含 `sqldrivers/qsqlite.dll`，否则统计数据库无法读写（脚本已自动复制）。
+* 在 exe 同级放一个空文件 `portable.flag` → 数据写到 `./data`（便携模式），否则写到 `%APPDATA%\keyCounter`。
+* 应用图标由 `keyCounterIconGen` + `tools/pack-ico.py` 生成（`resources/app.ico`，16→256 px 共 7 个尺寸）。
+
 ## 界面预览
 
 ![热力图面板](docs/preview-heatmap-dark.png)

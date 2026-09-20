@@ -29,6 +29,12 @@ constexpr const char* kVersion = "1.0.0";
 void attachConsole()
 {
 #ifdef Q_OS_WIN
+    // 输出已被父进程重定向（管道/文件）时直接用，不要用自己的控制台把它顶掉
+    const HANDLE existing = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (existing != nullptr && existing != INVALID_HANDLE_VALUE)
+    {
+        return;
+    }
     if (AttachConsole(ATTACH_PARENT_PROCESS) != FALSE)
     {
         FILE* stream = nullptr;
