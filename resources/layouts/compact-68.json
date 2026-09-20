@@ -1,0 +1,61 @@
+{
+  "id": "compact-68",
+  "name": "68 键小配列 (65%)",
+  "gap": 0.08,
+  "clusters": [
+    {
+      "title": "主键区 + 方向键",
+      "origin": [0, 0],
+      "rows": [
+        [
+          { "pid": "0x001", "label": "Esc", "sub": "~" },
+          { "pid": "0x002", "label": "1", "sub": "!" }, { "pid": "0x003", "label": "2", "sub": "@" },
+          { "pid": "0x004", "label": "3", "sub": "#" }, { "pid": "0x005", "label": "4", "sub": "$" },
+          { "pid": "0x006", "label": "5", "sub": "%" }, { "pid": "0x007", "label": "6", "sub": "^" },
+          { "pid": "0x008", "label": "7", "sub": "&" }, { "pid": "0x009", "label": "8", "sub": "*" },
+          { "pid": "0x00A", "label": "9", "sub": "(" }, { "pid": "0x00B", "label": "0", "sub": ")" },
+          { "pid": "0x00C", "label": "-", "sub": "_" }, { "pid": "0x00D", "label": "=", "sub": "+" },
+          { "pid": "0x00E", "label": "Bksp", "w": 2 },
+          { "pid": "0x153", "label": "Del", "x": 15.25 }
+        ],
+        [
+          { "pid": "0x00F", "label": "Tab", "w": 1.5 },
+          { "pid": "0x010", "label": "Q" }, { "pid": "0x011", "label": "W" }, { "pid": "0x012", "label": "E" },
+          { "pid": "0x013", "label": "R" }, { "pid": "0x014", "label": "T" }, { "pid": "0x015", "label": "Y" },
+          { "pid": "0x016", "label": "U" }, { "pid": "0x017", "label": "I" }, { "pid": "0x018", "label": "O" },
+          { "pid": "0x019", "label": "P" },
+          { "pid": "0x01A", "label": "[", "sub": "{" }, { "pid": "0x01B", "label": "]", "sub": "}" },
+          { "pid": "0x02B", "label": "\\", "sub": "|", "w": 1.5 },
+          { "pid": "0x147", "label": "Home", "x": 15.25 }
+        ],
+        [
+          { "pid": "0x03A", "label": "Caps", "w": 1.75 },
+          { "pid": "0x01E", "label": "A" }, { "pid": "0x01F", "label": "S" }, { "pid": "0x020", "label": "D" },
+          { "pid": "0x021", "label": "F" }, { "pid": "0x022", "label": "G" }, { "pid": "0x023", "label": "H" },
+          { "pid": "0x024", "label": "J" }, { "pid": "0x025", "label": "K" }, { "pid": "0x026", "label": "L" },
+          { "pid": "0x027", "label": ";", "sub": ":" }, { "pid": "0x028", "label": "'", "sub": "\"" },
+          { "pid": "0x01C", "label": "Enter", "w": 2.25 },
+          { "pid": "0x149", "label": "PgUp", "x": 15.25 }
+        ],
+        [
+          { "pid": "0x02A", "label": "Shift", "w": 2.25 },
+          { "pid": "0x02C", "label": "Z" }, { "pid": "0x02D", "label": "X" }, { "pid": "0x02E", "label": "C" },
+          { "pid": "0x02F", "label": "V" }, { "pid": "0x030", "label": "B" }, { "pid": "0x031", "label": "N" },
+          { "pid": "0x032", "label": "M" },
+          { "pid": "0x033", "label": ",", "sub": "<" }, { "pid": "0x034", "label": ".", "sub": ">" },
+          { "pid": "0x035", "label": "/", "sub": "?" },
+          { "pid": "0x036", "label": "Shift", "w": 1.75 },
+          { "pid": "0x148", "label": "↑", "x": 14.25 }
+        ],
+        [
+          { "pid": "0x01D", "label": "Ctrl", "w": 1.25 }, { "pid": "0x15B", "label": "Win", "w": 1.25 },
+          { "pid": "0x038", "label": "Alt", "w": 1.25 }, { "pid": "0x039", "label": "Space", "w": 6.25 },
+          { "pid": "0x138", "label": "Alt" }, { "pid": "0", "label": "Fn", "countable": false },
+          { "pid": "0x11D", "label": "Ctrl" },
+          { "pid": "0x14B", "label": "←", "x": 13.25 }, { "pid": "0x150", "label": "↓" },
+          { "pid": "0x14D", "label": "→" }
+        ]
+      ]
+    }
+  ]
+}

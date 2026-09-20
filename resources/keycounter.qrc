@@ -1,0 +1,7 @@
+<RCC>
+  <qresource prefix="/">
+    <file>layouts/ansi-104.json</file>
+    <file>layouts/tkl-87.json</file>
+    <file>layouts/compact-68.json</file>
+  </qresource>
+</RCC>

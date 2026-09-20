@@ -75,5 +75,6 @@ desktop.ini
 ccache/
 
 # ---- Tmp ----
+res-*.txt
 *.tmp
 tmp/

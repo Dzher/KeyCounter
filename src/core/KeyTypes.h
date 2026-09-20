@@ -5,6 +5,9 @@
 #include <array>
 #include <cstdint>
 
+#include <QHash>
+#include <QPair>
+#include <QVector>
 #include <QtGlobal>
 
 namespace kc
