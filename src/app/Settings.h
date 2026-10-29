@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QColor>
 #include <QKeySequence>
 #include <QObject>
 #include <QSettings>
@@ -56,6 +57,12 @@ public:
     /// 是否在趋势区显示时段分布子标签
     bool hourlyChart() const;
     void setHourlyChart(bool value);
+
+    /// 托盘活跃度环：显示开关；颜色为空表示跟随主题强调色，选了则固化
+    bool trayRingEnabled() const;
+    void setTrayRingEnabled(bool value);
+    QColor trayRingColor() const;
+    void setTrayRingColor(const QColor& color);
 
     bool backupEnabled() const;
     void setBackupEnabled(bool value);

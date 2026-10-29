@@ -8,8 +8,8 @@
 #include <QSystemTrayIcon>
 #include <QVector>
 
-#include "layout/LayoutModel.h"
 #include <QTimer>
+#include "layout/LayoutModel.h"
 
 #include "app/Icons.h"
 #include "app/Settings.h"
@@ -28,15 +28,13 @@ constexpr int kActivityWindowDays = 30;
 }  // namespace
 
 TrayController::TrayController(Settings& settings, CounterEngine& engine, StatsQuery& query, QObject* parent)
-    : QObject(parent), m_settings(settings), m_engine(engine), m_query(query)
-{
+    : QObject(parent), m_settings(settings), m_engine(engine), m_query(query) {
     m_tray = new QSystemTrayIcon(this);
     m_tray->setToolTip(QStringLiteral("keyCounter · 按键统计"));
     connect(m_tray, &QSystemTrayIcon::activated, this,
             [this](QSystemTrayIcon::ActivationReason reason)
             {
-                if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick)
-                {
+                if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
                     emit showPanelRequested();
                 }
             });
@@ -53,49 +51,44 @@ TrayController::TrayController(Settings& settings, CounterEngine& engine, StatsQ
                 refresh();
             });
 
+    // 活跃度环开关 / 颜色等设置变化时立即重绘图标（QSettings 持久化由 Settings 完成）
+    connect(&m_settings, &Settings::changed, this, &TrayController::refresh);
+
     m_iconTimer = new QTimer(this);
     m_iconTimer->setInterval(kIconRefreshMs);
     connect(m_iconTimer, &QTimer::timeout, this, &TrayController::refresh);
     m_iconTimer->start();
 
     refresh();
-    if (QSystemTrayIcon::isSystemTrayAvailable())
-    {
+    if (QSystemTrayIcon::isSystemTrayAvailable()) {
         m_tray->show();
     }
 }
 
-TrayController::~TrayController()
-{
+TrayController::~TrayController() {
     delete m_menu;
 }
 
-bool TrayController::available() const
-{
+bool TrayController::available() const {
     return QSystemTrayIcon::isSystemTrayAvailable();
 }
 
-void TrayController::setPaused(bool paused)
-{
+void TrayController::setPaused(bool paused) {
     m_paused = paused;
     refresh();
 }
 
-void TrayController::setHotkeyText(const QString& text)
-{
+void TrayController::setHotkeyText(const QString& text) {
     m_hotkeyText = text;
 }
 
-void TrayController::setHotkeyRegistered(bool registered)
-{
+void TrayController::setHotkeyRegistered(bool registered) {
     m_hotkeyRegistered = registered;
 }
 
-double TrayController::activityRatio() const
-{
+double TrayController::activityRatio() const {
     const quint64 today = m_engine.todayPress();
-    if (today == 0)
-    {
+    if (today == 0) {
         return 0.0;
     }
 
@@ -104,49 +97,46 @@ double TrayController::activityRatio() const
                                   static_cast<int>(todayDate.addDays(-(kActivityWindowDays - 1)).toJulianDay()));
     const PeriodStats stats = m_query.query(range);
     const double average = static_cast<double>(stats.totalPress) / static_cast<double>(kActivityWindowDays);
-    if (average <= 0.5)
-    {
+    if (average <= 0.5) {
         return 0.0;
     }
     return static_cast<double>(today) / average;
 }
 
-void TrayController::updateIcon()
-{
+void TrayController::updateIcon() {
     const QColor accent = m_hotkeyRegistered ? Theme::instance().palette().accent : Theme::instance().palette().accent;
     const double ratio = activityRatio();
+    const QColor ringColor = m_settings.trayRingColor();
+    const bool ringEnabled = m_settings.trayRingEnabled();
     QIcon icon;
-    icon.addPixmap(icons::trayIcon(accent, ratio, m_paused, 16));
-    icon.addPixmap(icons::trayIcon(accent, ratio, m_paused, 24));
-    icon.addPixmap(icons::trayIcon(accent, ratio, m_paused, 32));
+    // 原生 16/24 保证 100% 缩放下逐像素锐利；48/64 供高 DPI 托盘取用（较初版 16/24/32 整体翻倍）
+    for (int size : {16, 24, 32, 48, 64}) {
+        icon.addPixmap(icons::trayIcon(accent, ratio, m_paused, size, ringColor, ringEnabled));
+    }
     m_tray->setIcon(icon);
 }
 
-void TrayController::refresh()
-{
+void TrayController::refresh() {
     updateIcon();
 
     const QLocale locale = QLocale::system();
     const quint64 today = m_engine.todayPress();
     const quint64 corr = m_engine.todayCorr();
-    QString tooltip = QStringLiteral("keyCounter · %1\n今天 %2 次 · 打错修正 %3 次")
-                          .arg(m_paused ? QStringLiteral("已暂停") : QStringLiteral("正在统计"),
-                               locale.toString(static_cast<qlonglong>(today)),
-                               locale.toString(static_cast<qlonglong>(corr)));
-    if (!m_hotkeyText.isEmpty())
-    {
+    QString tooltip =
+        QStringLiteral("keyCounter · %1\n今天 %2 次 · 打错修正 %3 次")
+            .arg(m_paused ? QStringLiteral("已暂停") : QStringLiteral("正在统计"),
+                 locale.toString(static_cast<qlonglong>(today)), locale.toString(static_cast<qlonglong>(corr)));
+    if (!m_hotkeyText.isEmpty()) {
         tooltip += QStringLiteral("\n快捷键 %1").arg(m_hotkeyText);
     }
     m_tray->setToolTip(tooltip);
 }
 
-void TrayController::rebuildMenu()
-{
+void TrayController::rebuildMenu() {
     // 每次弹出都重建菜单；QMenu::clear() 只删 action，不会删掉子菜单控件，
     // 必须在清空前显式释放上一轮的子菜单（连同其 QActionGroup），否则每次右键都留下孤儿控件
     const QList<QMenu*> staleSubmenus = m_menu->findChildren<QMenu*>(QString(), Qt::FindDirectChildrenOnly);
-    for (QMenu* submenu : staleSubmenus)
-    {
+    for (QMenu* submenu : staleSubmenus) {
         delete submenu;
     }
     m_menu->clear();
@@ -175,8 +165,7 @@ void TrayController::rebuildMenu()
                                                        {QStringLiteral("暂停 1 小时"), 60},
                                                        {QStringLiteral("暂停到明天"), -1},
                                                        {QStringLiteral("暂停直到手动恢复"), -2}};
-    for (const auto& option : pauseOptions)
-    {
+    for (const auto& option : pauseOptions) {
         auto* action = m_pauseMenu->addAction(option.first);
         action->setCheckable(true);
         action->setChecked((option.second == 0) ? !m_paused : false);
@@ -190,8 +179,7 @@ void TrayController::rebuildMenu()
     m_layoutGroup = new QActionGroup(m_layoutMenu);
     m_layoutGroup->setExclusive(true);
     const LayoutRepository& repo = LayoutRepository::instance();
-    for (const QString& id : repo.availableIds())
-    {
+    for (const QString& id : repo.availableIds()) {
         auto* action = m_layoutMenu->addAction(repo.displayName(id));
         action->setCheckable(true);
         action->setChecked(id == m_settings.layoutId());
@@ -207,15 +195,13 @@ void TrayController::rebuildMenu()
             [this](bool checked)
             {
                 QString error;
-                if (!m_settings.setAutostart(checked, &error))
-                {
+                if (!m_settings.setAutostart(checked, &error)) {
                     showMessage(QStringLiteral("开机自启设置失败"), error, true);
                 }
                 m_autostartHandled = true;
             });
 
-    if (!m_hotkeyText.isEmpty())
-    {
+    if (!m_hotkeyText.isEmpty()) {
         m_hotkeyAction = m_menu->addAction(QStringLiteral("全局快捷键：%1").arg(m_hotkeyText));
         m_hotkeyAction->setEnabled(false);
     }
@@ -232,8 +218,7 @@ void TrayController::rebuildMenu()
     Theme::instance().applyToMenu(m_menu);
 }
 
-void TrayController::showMessage(const QString& title, const QString& body, bool warning)
-{
+void TrayController::showMessage(const QString& title, const QString& body, bool warning) {
     m_tray->showMessage(title, body, warning ? QSystemTrayIcon::Warning : QSystemTrayIcon::Information, 6000);
 }
 

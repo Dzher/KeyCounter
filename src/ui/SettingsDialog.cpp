@@ -2,8 +2,8 @@
 #include "SettingsDialog.h"
 
 #include <QApplication>
-#include <QSignalBlocker>
 #include <QCheckBox>
+#include <QColorDialog>
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QDir>
@@ -18,6 +18,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QTabWidget>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -39,25 +40,21 @@ namespace
 class RampPreview : public QWidget
 {
 public:
-    RampPreview(int kind, QWidget* parent = nullptr) : QWidget(parent), m_kind(kind)
-    {
+    RampPreview(int kind, QWidget* parent = nullptr) : QWidget(parent), m_kind(kind) {
         setFixedHeight(18);
         setMinimumWidth(180);
     }
-    void setKind(int kind)
-    {
+    void setKind(int kind) {
         m_kind = kind;
         update();
     }
 
 protected:
-    void paintEvent(QPaintEvent*) override
-    {
+    void paintEvent(QPaintEvent*) override {
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing, true);
         QLinearGradient gradient(0, 0, width(), 0);
-        for (const auto& stop : HeatRamp::stops(m_kind))
-        {
+        for (const auto& stop : HeatRamp::stops(m_kind)) {
             gradient.setColorAt(qBound(0.0, stop.first, 1.0), stop.second);
         }
         painter.setPen(Qt::NoPen);
@@ -69,8 +66,7 @@ private:
     int m_kind;
 };
 
-QLabel* hintLabel(const QString& text, QWidget* parent)
-{
+QLabel* hintLabel(const QString& text, QWidget* parent) {
     auto* label = new QLabel(text, parent);
     label->setWordWrap(true);
     label->setFont(Theme::instance().font(11));
@@ -81,8 +77,7 @@ QLabel* hintLabel(const QString& text, QWidget* parent)
 }  // namespace
 
 SettingsDialog::SettingsDialog(Settings& settings, CounterEngine& engine, QWidget* parent)
-    : QDialog(parent), m_settings(settings), m_engine(engine)
-{
+    : QDialog(parent), m_settings(settings), m_engine(engine) {
     setWindowTitle(QStringLiteral("keyCounter 设置"));
     setModal(false);
     resize(560, 520);
@@ -109,8 +104,7 @@ SettingsDialog::SettingsDialog(Settings& settings, CounterEngine& engine, QWidge
     Theme::instance().applyToWidget(this);
 }
 
-QWidget* SettingsDialog::buildGeneralTab()
-{
+QWidget* SettingsDialog::buildGeneralTab() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(12, 12, 12, 12);
@@ -124,8 +118,7 @@ QWidget* SettingsDialog::buildGeneralTab()
             [this](bool checked)
             {
                 QString error;
-                if (!m_settings.setAutostart(checked, &error))
-                {
+                if (!m_settings.setAutostart(checked, &error)) {
                     QMessageBox::warning(this, QStringLiteral("设置失败"), error);
                 }
                 refreshAutostartState();
@@ -153,8 +146,7 @@ QWidget* SettingsDialog::buildGeneralTab()
 
     auto* rampRow = new QHBoxLayout();
     m_ramp = new QComboBox(appearance);
-    for (int kind = 0; kind <= 2; ++kind)
-    {
+    for (int kind = 0; kind <= 2; ++kind) {
         m_ramp->addItem(HeatRamp::name(kind));
     }
     m_ramp->setCurrentIndex(m_settings.heatRamp());
@@ -172,8 +164,7 @@ QWidget* SettingsDialog::buildGeneralTab()
 
     m_layout = new QComboBox(appearance);
     const LayoutRepository& repo = LayoutRepository::instance();
-    for (const QString& id : repo.availableIds())
-    {
+    for (const QString& id : repo.availableIds()) {
         m_layout->addItem(repo.displayName(id), id);
     }
     const int layoutIndex = m_layout->findData(m_settings.layoutId());
@@ -218,13 +209,53 @@ QWidget* SettingsDialog::buildGeneralTab()
             });
     form->addRow(QString(), m_hourlyChart);
 
+    m_trayRing = new QCheckBox(QStringLiteral("托盘图标显示活跃度环"), appearance);
+    m_trayRing->setChecked(m_settings.trayRingEnabled());
+    connect(m_trayRing, &QCheckBox::toggled, this,
+            [this](bool checked)
+            {
+                m_settings.setTrayRingEnabled(checked);
+                emit preferencesChanged();
+            });
+    form->addRow(QString(), m_trayRing);
+
+    auto* ringRow = new QHBoxLayout();
+    m_trayRingColor = new QPushButton(appearance);
+    m_trayRingColor->setFixedWidth(110);
+    connect(m_trayRingColor, &QPushButton::clicked, this,
+            [this]
+            {
+                QColor initial = m_settings.trayRingColor();
+                if (!initial.isValid()) {
+                    initial = Theme::instance().palette().accent;
+                }
+                const QColor picked = QColorDialog::getColor(initial, this, QStringLiteral("选择活跃度环颜色"));
+                if (picked.isValid()) {
+                    m_settings.setTrayRingColor(picked);
+                    updateTrayRingColorButton();
+                    emit preferencesChanged();
+                }
+            });
+    ringRow->addWidget(m_trayRingColor);
+    m_trayRingReset = new QPushButton(QStringLiteral("恢复跟随主题"), appearance);
+    connect(m_trayRingReset, &QPushButton::clicked, this,
+            [this]
+            {
+                m_settings.setTrayRingColor(QColor());
+                updateTrayRingColorButton();
+                emit preferencesChanged();
+            });
+    ringRow->addWidget(m_trayRingReset);
+    ringRow->addStretch(1);
+    form->addRow(QStringLiteral("活跃度环颜色"), ringRow);
+    updateTrayRingColorButton();
+
     layout->addWidget(appearance);
     layout->addStretch(1);
     return page;
 }
 
-QWidget* SettingsDialog::buildHotkeyTab()
-{
+QWidget* SettingsDialog::buildHotkeyTab() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(12, 12, 12, 12);
@@ -247,9 +278,10 @@ QWidget* SettingsDialog::buildHotkeyTab()
     m_hotkeyStatus = hintLabel(QString(), group);
     groupLayout->addWidget(m_hotkeyStatus);
 
-    groupLayout->addWidget(hintLabel(QStringLiteral("说明：全局快捷键会从系统中被本程序截获（Windows 的固有行为），"
-                                                  "因此默认关闭；组合键必须包含 Ctrl / Alt / Shift / Win 中的至少一个修饰键。"),
-                                    group));
+    groupLayout->addWidget(
+        hintLabel(QStringLiteral("说明：全局快捷键会从系统中被本程序截获（Windows 的固有行为），"
+                                 "因此默认关闭；组合键必须包含 Ctrl / Alt / Shift / Win 中的至少一个修饰键。"),
+                  group));
 
     const auto notify = [this]
     {
@@ -265,8 +297,7 @@ QWidget* SettingsDialog::buildHotkeyTab()
     return page;
 }
 
-QWidget* SettingsDialog::buildDataTab()
-{
+QWidget* SettingsDialog::buildDataTab() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(12, 12, 12, 12);
@@ -309,8 +340,7 @@ QWidget* SettingsDialog::buildDataTab()
             [this]
             {
                 const QDir dir(m_settings.resolvedDataDir());
-                if (dir.exists())
-                {
+                if (dir.exists()) {
                     QDesktopServices::openUrl(QUrl::fromLocalFile(dir.absolutePath()));
                 }
             });
@@ -322,10 +352,11 @@ QWidget* SettingsDialog::buildDataTab()
     locationButtons->addWidget(m_resetDataDirButton);
     locationButtons->addStretch(1);
     dataLayout->addLayout(locationButtons);
-    dataLayout->addWidget(hintLabel(QStringLiteral("更改位置会把现有数据（数据库与每日备份）迁移过去，原目录不再保留副本；"
-                                                   "也可以选一个已有的数据目录直接接管。默认位置：%1")
-                                        .arg(StatsStore::defaultDataDir()),
-                                    dataGroup));
+    dataLayout->addWidget(
+        hintLabel(QStringLiteral("更改位置会把现有数据（数据库与每日备份）迁移过去，原目录不再保留副本；"
+                                 "也可以选一个已有的数据目录直接接管。默认位置：%1")
+                      .arg(StatsStore::defaultDataDir()),
+                  dataGroup));
 
     auto* dangerGroup = new QGroupBox(QStringLiteral("清理"), page);
     auto* buttons = new QHBoxLayout(dangerGroup);
@@ -337,8 +368,7 @@ QWidget* SettingsDialog::buildDataTab()
                     this, QStringLiteral("确认清空"),
                     QStringLiteral("将删除全部按键统计（不可恢复，建议先复制数据目录备份）。确定继续吗？"),
                     QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-                if (answer == QMessageBox::Yes)
-                {
+                if (answer == QMessageBox::Yes) {
                     emit clearDataRequested();
                 }
             });
@@ -353,67 +383,57 @@ QWidget* SettingsDialog::buildDataTab()
     return page;
 }
 
-void SettingsDialog::refreshDataPath()
-{
-    if (m_dataPath == nullptr)
-    {
+void SettingsDialog::refreshDataPath() {
+    if (m_dataPath == nullptr) {
         return;
     }
     m_dataPath->setText(QStringLiteral("%1\n（%2）")
-                            .arg(m_settings.resolvedDataDir(),
-                                 m_settings.usesCustomDataDirectory() ? QStringLiteral("自定义位置")
-                                                                      : QStringLiteral("默认位置")));
-    if (m_resetDataDirButton != nullptr)
-    {
+                            .arg(m_settings.resolvedDataDir(), m_settings.usesCustomDataDirectory()
+                                                                   ? QStringLiteral("自定义位置")
+                                                                   : QStringLiteral("默认位置")));
+    if (m_resetDataDirButton != nullptr) {
         m_resetDataDirButton->setEnabled(m_settings.usesCustomDataDirectory());
     }
 }
 
-void SettingsDialog::chooseDataDirectory()
-{
-    const QString chosen = QFileDialog::getExistingDirectory(
-        this, QStringLiteral("选择数据目录"), m_settings.resolvedDataDir(),
-        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
-    if (chosen.isEmpty())
-    {
+void SettingsDialog::chooseDataDirectory() {
+    const QString chosen =
+        QFileDialog::getExistingDirectory(this, QStringLiteral("选择数据目录"), m_settings.resolvedDataDir(),
+                                          QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+    if (chosen.isEmpty()) {
         return;
     }
     requestDataDirectory(chosen);
 }
 
-void SettingsDialog::requestDataDirectory(const QString& dir)
-{
+void SettingsDialog::requestDataDirectory(const QString& dir) {
     const QString current = QDir::cleanPath(m_settings.resolvedDataDir());
     const QString target = QDir::cleanPath(dir);
-    if (target.compare(current, Qt::CaseInsensitive) == 0)
-    {
+    if (target.compare(current, Qt::CaseInsensitive) == 0) {
         return;  // 已经在用这个目录
     }
     if (target.startsWith(current + QLatin1Char('/'), Qt::CaseInsensitive) ||
-        current.startsWith(target + QLatin1Char('/'), Qt::CaseInsensitive))
-    {
+        current.startsWith(target + QLatin1Char('/'), Qt::CaseInsensitive)) {
         QMessageBox::warning(this, QStringLiteral("无法使用该目录"),
                              QStringLiteral("新目录不能是当前数据目录的子目录（或反之）。"));
         return;
     }
 
-    if (QFileInfo::exists(StatsStore::databasePathIn(target)))
-    {
+    if (QFileInfo::exists(StatsStore::databasePathIn(target))) {
         QMessageBox box(this);
         box.setIcon(QMessageBox::Question);
         box.setWindowTitle(QStringLiteral("目标目录已有数据"));
         box.setText(QStringLiteral("目标目录已存在统计数据：\n%1").arg(target));
-        box.setInformativeText(QStringLiteral("要迁移当前的统计数据并覆盖目标目录，还是直接接管目标目录里已有的数据？"));
+        box.setInformativeText(
+            QStringLiteral("要迁移当前的统计数据并覆盖目标目录，还是直接接管目标目录里已有的数据？"));
         auto* migrateButton = box.addButton(QStringLiteral("迁移并覆盖"), QMessageBox::DestructiveRole);
         auto* adoptButton = box.addButton(QStringLiteral("使用目标数据"), QMessageBox::AcceptRole);
         box.addButton(QStringLiteral("取消"), QMessageBox::RejectRole);
         box.exec();
-        if (box.clickedButton() == migrateButton)
-        {
+        if (box.clickedButton() == migrateButton) {
             emit dataDirectoryChangeRequested(target, true);
         }
-        else if (box.clickedButton() == adoptButton)
-        {
+        else if (box.clickedButton() == adoptButton) {
             emit dataDirectoryChangeRequested(target, false);
         }
         return;
@@ -424,14 +444,12 @@ void SettingsDialog::requestDataDirectory(const QString& dir)
         QStringLiteral("把统计数据迁移到以下目录吗？\n%1\n\n迁移期间采集会暂停片刻，完成后旧目录不再保留副本。")
             .arg(target),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
-    if (answer == QMessageBox::Yes)
-    {
+    if (answer == QMessageBox::Yes) {
         emit dataDirectoryChangeRequested(target, true);
     }
 }
 
-QWidget* SettingsDialog::buildAboutTab()
-{
+QWidget* SettingsDialog::buildAboutTab() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(12, 12, 12, 12);
@@ -448,50 +466,61 @@ QWidget* SettingsDialog::buildAboutTab()
     detail->setWordWrap(true);
     layout->addWidget(detail);
 
-    layout->addWidget(hintLabel(QStringLiteral("<b>已知限制</b><br/>"
-                                               "· 以管理员身份运行的窗口（提权进程）中的按键无法被普通权限进程接收（Windows UIPI 限制）；<br/>"
-                                               "· UAC 弹窗、锁屏界面属于安全桌面，同样不会投递按键；<br/>"
-                                               "· Fn 键由键盘硬件处理，不产生系统键码，无法统计。"),
-                                    page));
+    layout->addWidget(hintLabel(
+        QStringLiteral("<b>已知限制</b><br/>"
+                       "· 以管理员身份运行的窗口（提权进程）中的按键无法被普通权限进程接收（Windows UIPI 限制）；<br/>"
+                       "· UAC 弹窗、锁屏界面属于安全桌面，同样不会投递按键；<br/>"
+                       "· Fn 键由键盘硬件处理，不产生系统键码，无法统计。"),
+        page));
 
     layout->addWidget(hintLabel(QStringLiteral("<b>统计说明</b><br/>"
                                                "· 长按不算多次，只在按下瞬间计 1 次；<br/>"
                                                "· 左右 Shift / Ctrl、主回车与小键盘回车等按物理键位分别统计；<br/>"
                                                "· 数据每 15 秒或跨零点、休眠、退出时落盘。"),
-                                    page));
+                                page));
     layout->addStretch(1);
     return page;
 }
 
-void SettingsDialog::refreshAutostartState()
-{
-    if (m_autostartHint == nullptr)
-    {
+void SettingsDialog::refreshAutostartState() {
+    if (m_autostartHint == nullptr) {
         return;
     }
     const bool enabled = m_settings.autostart();
-    if (m_autostart->isChecked() != enabled)
-    {
+    if (m_autostart->isChecked() != enabled) {
         const QSignalBlocker blocker(m_autostart);
         m_autostart->setChecked(enabled);
     }
-    m_autostartHint->setText(enabled
-                                 ? QStringLiteral("已登记：HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run")
-                                 : QStringLiteral("未登记开机自启"));
+    m_autostartHint->setText(enabled ? QStringLiteral("已登记：HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run")
+                                     : QStringLiteral("未登记开机自启"));
 }
 
-void SettingsDialog::setHotkeyStatus(bool ok, const QString& message)
-{
-    if (m_hotkeyStatus == nullptr)
-    {
+void SettingsDialog::setHotkeyStatus(bool ok, const QString& message) {
+    if (m_hotkeyStatus == nullptr) {
         return;
     }
     const Palette& palette = Theme::instance().palette();
-    m_hotkeyStatus->setText(message.isEmpty() ? QStringLiteral("当前组合键：%1")
-                                                    .arg(m_settings.hotkey().toString(QKeySequence::NativeText))
-                                              : message);
-    m_hotkeyStatus->setStyleSheet(QStringLiteral("color:%1;")
-                                      .arg((ok ? palette.textFaint : palette.danger).name()));
+    m_hotkeyStatus->setText(
+        message.isEmpty() ? QStringLiteral("当前组合键：%1").arg(m_settings.hotkey().toString(QKeySequence::NativeText))
+                          : message);
+    m_hotkeyStatus->setStyleSheet(QStringLiteral("color:%1;").arg((ok ? palette.textFaint : palette.danger).name()));
+}
+
+void SettingsDialog::updateTrayRingColorButton() {
+    if (m_trayRingColor == nullptr) {
+        return;
+    }
+    const QColor saved = m_settings.trayRingColor();
+    const QColor effective = saved.isValid() ? saved : Theme::instance().palette().accent;
+    m_trayRingColor->setText(saved.isValid() ? saved.name().toUpper() : QStringLiteral("跟随主题"));
+    // 色块上的文字按亮度取黑/白，选深色时也能看清
+    const QString textColor = qGray(effective.rgb()) > 140 ? QStringLiteral("#1F2329") : QStringLiteral("#FFFFFF");
+    m_trayRingColor->setStyleSheet(
+        QStringLiteral("QPushButton { background:%1; color:%2; border:1px solid %3; border-radius:4px; }")
+            .arg(effective.name(), textColor, Theme::instance().palette().textFaint.name()));
+    if (m_trayRingReset != nullptr) {
+        m_trayRingReset->setEnabled(saved.isValid());
+    }
 }
 
 }  // namespace kc

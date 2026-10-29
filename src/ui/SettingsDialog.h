@@ -41,6 +41,7 @@ private:
     void refreshAutostartState();
     void chooseDataDirectory();
     void requestDataDirectory(const QString& dir);
+    void updateTrayRingColorButton();
 
     Settings& m_settings;
     CounterEngine& m_engine;
@@ -53,6 +54,9 @@ private:
     QComboBox* m_weekStart = nullptr;
     QCheckBox* m_reduceMotion = nullptr;
     QCheckBox* m_hourlyChart = nullptr;
+    QCheckBox* m_trayRing = nullptr;
+    QPushButton* m_trayRingColor = nullptr;
+    QPushButton* m_trayRingReset = nullptr;
 
     QCheckBox* m_hotkeyEnabled = nullptr;
     QKeySequenceEdit* m_hotkeyEdit = nullptr;
