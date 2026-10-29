@@ -19,10 +19,17 @@ public:
     explicit StatsStore(QObject* parent = nullptr);
     ~StatsStore() override;
 
-    /// DB 文件名
+    /// 默认数据目录（%APPDATA%/keyCounter，或便携模式 exe/data）
+    static QString defaultDataDir();
+    /// 数据文件名
+    static QString databaseFileName();
+    /// 指定数据目录下的数据库完整路径
+    static QString databasePathIn(const QString& dir);
+    /// 默认数据目录下的数据库完整路径
     static QString defaultDatabasePath();
-    /// 解析后的数据目录（%APPDATA%/keyCounter 或便携模式 exe/data）
-    static QString dataDir();
+
+    /// 迁移数据目录内容（数据库 + WAL/SHM + backup/），成功返回 true，失败时 error 说明原因且不改变任何文件
+    static bool migrateDataDirectory(const QString& fromDir, const QString& toDir, bool overwrite, QString* error);
 
 public slots:
     void open(const QString& dbPath);

@@ -17,6 +17,7 @@ private slots:
     void roundTrip();
     void accumulatesAcrossBatches();
     void corruptFileIsQuarantined();
+    void migratesDataDirectory();
 };
 
 namespace
@@ -169,6 +170,68 @@ void TestStatsStore::corruptFileIsQuarantined()
     StatsQuery query;
     QVERIFY(query.open(dbPath));
     QCOMPARE(query.query(dayRange(today, today)).keys.value(pk::B).press, quint32(3));
+}
+
+void TestStatsStore::migratesDataDirectory()
+{
+    QTemporaryDir sourceDir;
+    QTemporaryDir targetDir;
+    QVERIFY(sourceDir.isValid());
+    QVERIFY(targetDir.isValid());
+
+    const int today = static_cast<int>(QDate::currentDate().toJulianDay());
+    const QString sourceDb = StatsStore::databasePathIn(sourceDir.path());
+    QCOMPARE(sourceDb, sourceDir.filePath(QStringLiteral("keycounter.db")));
+
+    {
+        StatsStore store;
+        QSignalSpy opened(&store, &StatsStore::opened);
+        store.open(sourceDb);
+        QVERIFY2(opened.at(0).at(0).toBool(), qPrintable(opened.at(0).at(1).toString()));
+        store.applyBatch(makeBatch(today));
+        // 制造一份备份，验证 backup/ 目录也会跟着搬
+        QVERIFY(QDir().mkpath(sourceDir.filePath(QStringLiteral("backup"))));
+        QFile backup(sourceDir.filePath(QStringLiteral("backup/keycounter-demo.db")));
+        QVERIFY(backup.open(QIODevice::WriteOnly));
+        backup.write("snapshot");
+        backup.close();
+        store.shutdown();
+    }
+
+    const QString targetDb = StatsStore::databasePathIn(targetDir.path());
+
+    // 目标目录已有数据且不允许覆盖 → 拒绝迁移，且不改动任何文件
+    {
+        QFile occupied(targetDb);
+        QVERIFY(occupied.open(QIODevice::WriteOnly));
+        occupied.write("occupied");
+        occupied.close();
+
+        QString error;
+        QVERIFY(!StatsStore::migrateDataDirectory(sourceDir.path(), targetDir.path(), false, &error));
+        QVERIFY(!error.isEmpty());
+        QVERIFY(QFile::exists(sourceDb));
+        QCOMPARE(QFile(targetDb).size(), qint64(8));  // 目标内容未被破坏
+        QVERIFY(QFile::remove(targetDb));
+    }
+
+    QString error;
+    QVERIFY2(StatsStore::migrateDataDirectory(sourceDir.path(), targetDir.path(), false, &error),
+             qPrintable(error));
+    QVERIFY(!QFile::exists(sourceDb));
+    QVERIFY(QFile::exists(targetDb));
+    QVERIFY(QFile::exists(targetDir.filePath(QStringLiteral("backup/keycounter-demo.db"))));
+
+    // 迁到新位置的库可正常读取；同目录再迁一次是空操作
+    StatsQuery query;
+    QVERIFY(query.open(targetDb));
+    QCOMPARE(query.query(dayRange(today, today)).totalPress, quint64(45));
+    query.close();
+    QVERIFY(StatsStore::migrateDataDirectory(targetDir.path(), targetDir.path(), false, &error));
+
+    // 目标不能是源目录的子目录
+    QVERIFY(!StatsStore::migrateDataDirectory(targetDir.path(), targetDb, false, &error));
+    QVERIFY(!error.isEmpty());
 }
 
 QTEST_GUILESS_MAIN(TestStatsStore)

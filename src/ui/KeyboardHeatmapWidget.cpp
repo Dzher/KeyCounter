@@ -1,6 +1,7 @@
 // keyCounter - 热力虚拟键盘实现
 #include "KeyboardHeatmapWidget.h"
 
+#include <QFontMetricsF>
 #include <QLinearGradient>
 #include <QMouseEvent>
 #include <QPainter>
@@ -19,10 +20,43 @@ namespace
 constexpr double kOuterMargin = 6.0;
 constexpr double kLegendHeight = 34.0;
 constexpr double kMaxRadius = 7.0;
+constexpr int kMinLabelPx = 8;
+constexpr int kMaxLabelPx = 17;
 
 QString formatCount(quint64 value)
 {
     return QLocale::system().toString(static_cast<qlonglong>(value));
+}
+
+/// 键帽内可用的文本宽度（左右各留约 8% 呼吸空间）
+double labelWidth(const QRectF& cell)
+{
+    return qMax(8.0, cell.width() - qMax(4.0, cell.width() * 0.16));
+}
+
+/// 挑选键帽字号：先按键高取上限，再按文本宽度收缩。
+/// 小键盘 Enter 这种「窄而高」的键只按高度算会得到 17 px，足以让 5 个字符溢出键帽。
+int fitLabelPx(const QString& text, const QRectF& cell, QFont::Weight weight, int maxPx = kMaxLabelPx)
+{
+    const int byHeight = qBound(kMinLabelPx, static_cast<int>(cell.height() * 0.30), maxPx);
+    if (text.isEmpty() || cell.width() <= 0.0)
+    {
+        return byHeight;
+    }
+
+    const double available = labelWidth(cell);
+    int px = byHeight;
+    for (int attempt = 0; attempt < 3 && px > kMinLabelPx; ++attempt)
+    {
+        const QFontMetricsF metrics(Theme::instance().font(px, weight));
+        const double advance = metrics.horizontalAdvance(text);
+        if (advance <= available)
+        {
+            break;
+        }
+        px = qMax(kMinLabelPx, static_cast<int>(px * available / advance));
+    }
+    return px;
 }
 
 }  // namespace
@@ -254,13 +288,14 @@ void KeyboardHeatmapWidget::renderLayer()
             labelColor = Theme::readableText(fill, palette.text, QColor(0x0D, 0x0F, 0x14));
         }
 
-        const int fontPx = qBound(8, static_cast<int>(cell.height() * 0.30), 17);
-        QFont font = Theme::instance().font(fontPx, heat ? QFont::DemiBold : QFont::Normal);
+        const QString label = keyDisplayName(key);
+        const QFont::Weight weight = heat ? QFont::DemiBold : QFont::Normal;
+        const int fontPx = fitLabelPx(label, cell, weight);
+        QFont font = Theme::instance().font(fontPx, weight);
         painter.setFont(font);
         painter.setPen(labelColor);
 
         const bool showSub = !key.sub.isEmpty() && cell.width() > 26.0 && cell.height() > 26.0;
-        const QString label = keyDisplayName(key);
         QRectF textRect = cell;
         if (showSub)
         {
@@ -272,7 +307,13 @@ void KeyboardHeatmapWidget::renderLayer()
             painter.setFont(font);
             painter.setPen(labelColor);
         }
-        painter.drawText(textRect, Qt::AlignCenter, label);
+        // 极端窄键兜底：字号已到下限仍放不下时省略
+        const QFontMetricsF labelMetrics(font);
+        const double textSpace = qMax(4.0, textRect.width() - 4.0);
+        const QString drawn = labelMetrics.horizontalAdvance(label) > textSpace
+                                  ? labelMetrics.elidedText(label, Qt::ElideRight, textSpace)
+                                  : label;
+        painter.drawText(textRect, Qt::AlignCenter, drawn);
 
         // 次数：键够大且已计数时显示
         if (heat && cell.width() > 34.0 && cell.height() > 34.0)

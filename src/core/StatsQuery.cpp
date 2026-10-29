@@ -20,6 +20,11 @@ StatsQuery::StatsQuery(QObject* parent) : QObject(parent), m_cache(kCacheSize) {
 
 StatsQuery::~StatsQuery()
 {
+    close();
+}
+
+void StatsQuery::close()
+{
     m_cache.clear();
     m_cachedRanges.clear();
     if (m_db.isValid())
@@ -31,19 +36,12 @@ StatsQuery::~StatsQuery()
     {
         QSqlDatabase::removeDatabase(kConnectionName);
     }
+    m_open = false;
 }
 
 bool StatsQuery::open(const QString& dbPath, QString* error)
 {
-    if (m_db.isValid())
-    {
-        m_db.close();
-        m_db = QSqlDatabase();
-        if (QSqlDatabase::contains(kConnectionName))
-        {
-            QSqlDatabase::removeDatabase(kConnectionName);
-        }
-    }
+    close();
 
     m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), kConnectionName);
     m_db.setDatabaseName(dbPath);

@@ -8,7 +8,10 @@
 #include "ui/TrendChartWidget.h"
 #include "core/Periods.h"
 
+class QEvent;
 class QLabel;
+class QMoveEvent;
+class QResizeEvent;
 class QTimer;
 class QToolButton;
 
@@ -35,6 +38,8 @@ public:
     void setPaused(bool paused);
     void showPanel();
     void applyPreferences();
+    /// 立即把窗口几何（含最大化状态）写入设置；退出前兜底调用
+    void persistGeometry();
 
 signals:
     void settingsRequested();
@@ -45,9 +50,14 @@ protected:
     void closeEvent(QCloseEvent* event) override;
     void showEvent(QShowEvent* event) override;
     void hideEvent(QHideEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
+    void moveEvent(QMoveEvent* event) override;
+    void changeEvent(QEvent* event) override;
 
 private:
     void buildUi();
+    void scheduleGeometrySave();
+    static QString topKeyTooltip(const QString& label, const KeyStat& stat, bool pressPrimary);
     void onPeriodChanged(int kind);
     void updateStatusLine();
     void updateCards(const PeriodStats& stats);
@@ -76,6 +86,7 @@ private:
     QLabel* m_focusLabel = nullptr;
 
     QTimer* m_tickTimer = nullptr;
+    QTimer* m_geometryTimer = nullptr;
     Range m_range;
     PeriodKind m_kind = PeriodKind::Today;
     quint16 m_focusPid = 0;
@@ -84,7 +95,6 @@ private:
     QString m_layoutId;
     int m_tickCounter = 0;
     bool m_paused = false;
-    bool m_geometryRestored = false;
     bool m_trayHintShown = false;
 };
 

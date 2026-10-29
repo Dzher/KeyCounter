@@ -1,9 +1,11 @@
 // keyCounter - 主题实现
 #include "Theme.h"
 
+#include <QApplication>
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QLinearGradient>
+#include <QMenu>
 #include <QPainterPath>
 #include <QPalette>
 #include <QSettings>
@@ -36,6 +38,25 @@ double channelToLinear(int c)
 {
     const double s = static_cast<double>(c) / 255.0;
     return (s <= 0.04045) ? (s / 12.92) : std::pow((s + 0.055) / 1.055, 2.4);
+}
+
+/// 主题色 → 控件调色板（标准控件与顶层弹窗共用同一套角色映射，其余角色沿用 base）
+QPalette buildPalette(const QPalette& base, const Palette& p)
+{
+    QPalette qp = base;
+    qp.setColor(QPalette::Window, p.window);
+    qp.setColor(QPalette::WindowText, p.text);
+    qp.setColor(QPalette::Base, p.surface);
+    qp.setColor(QPalette::AlternateBase, p.surfaceAlt);
+    qp.setColor(QPalette::Text, p.text);
+    qp.setColor(QPalette::Button, p.surfaceAlt);
+    qp.setColor(QPalette::ButtonText, p.text);
+    qp.setColor(QPalette::ToolTipBase, p.surfaceAlt);
+    qp.setColor(QPalette::ToolTipText, p.text);
+    qp.setColor(QPalette::Highlight, p.accent);
+    qp.setColor(QPalette::HighlightedText, p.dark ? QColor(0x0F, 0x11, 0x16) : Qt::white);
+    qp.setColor(QPalette::PlaceholderText, p.textFaint);
+    return qp;
 }
 
 }  // namespace
@@ -151,6 +172,7 @@ void Theme::rebuild()
         p.ok = QColor(0x1E, 0x9E, 0x62);
     }
     m_palette = p;
+    applyToApplication();
 }
 
 QFont Theme::font(int pixelSize, QFont::Weight weight) const
@@ -216,6 +238,27 @@ QColor Theme::readableText(const QColor& background, const QColor& light, const 
     return luminance(background) > 0.36 ? dark : light;
 }
 
+void Theme::applyToApplication() const
+{
+    auto* app = qobject_cast<QApplication*>(QCoreApplication::instance());
+    if (app == nullptr)
+    {
+        return;
+    }
+
+    // 顶层弹窗只吃到 qApp 的调色板，又拿不到主界面的样式表：
+    // 深色主题下就会出现浅色对话框配浅色文字（迁移数据目录的确认框就是这样变得看不清的）。
+    // 所以两边都补：调色板管底色，样式表管「未设置主题的弹窗」的那几个控件。
+    const Palette& p = m_palette;
+    app->setPalette(buildPalette(app->palette(), p));
+    app->setStyleSheet(QStringLiteral("QDialog,QMessageBox{background-color:%1;}"
+                                      "QMessageBox QLabel{color:%2;}"
+                                      "QMessageBox QPushButton{background:%3;border:1px solid %4;border-radius:6px;"
+                                      "padding:6px 14px;color:%2;}"
+                                      "QToolTip{background:%3;color:%2;border:1px solid %4;}")
+                           .arg(p.window.name(), p.text.name(), p.surface.name(), p.border.name()));
+}
+
 void Theme::applyToWidget(QWidget* widget) const
 {
     if (widget == nullptr)
@@ -223,20 +266,7 @@ void Theme::applyToWidget(QWidget* widget) const
         return;
     }
     const Palette& p = m_palette;
-    QPalette qp = widget->palette();
-    qp.setColor(QPalette::Window, p.window);
-    qp.setColor(QPalette::WindowText, p.text);
-    qp.setColor(QPalette::Base, p.surface);
-    qp.setColor(QPalette::AlternateBase, p.surfaceAlt);
-    qp.setColor(QPalette::Text, p.text);
-    qp.setColor(QPalette::Button, p.surfaceAlt);
-    qp.setColor(QPalette::ButtonText, p.text);
-    qp.setColor(QPalette::ToolTipBase, p.surfaceAlt);
-    qp.setColor(QPalette::ToolTipText, p.text);
-    qp.setColor(QPalette::Highlight, p.accent);
-    qp.setColor(QPalette::HighlightedText, p.dark ? QColor(0x0F, 0x11, 0x16) : Qt::white);
-    qp.setColor(QPalette::PlaceholderText, p.textFaint);
-    widget->setPalette(qp);
+    widget->setPalette(buildPalette(widget->palette(), p));
     widget->setFont(font(13));
 
     widget->setStyleSheet(
@@ -258,6 +288,61 @@ void Theme::applyToWidget(QWidget* widget) const
                        "QToolTip{background:%5;color:%4;border:1px solid %1;}")
             .arg(p.border.name(), p.textDim.name(), p.surfaceAlt.name(), p.text.name(), p.surface.name(),
                  p.accent.name(), p.textFaint.name()));
+}
+
+void Theme::applyToMenu(QMenu* menu) const
+{
+    if (menu == nullptr)
+    {
+        return;
+    }
+
+    const Palette& p = m_palette;
+    const QColor selectedText = p.dark ? QColor(0x0F, 0x11, 0x16) : QColor(Qt::white);
+
+    // QMenu 是顶层弹出控件，不套主题就永远是系统默认的浅色；这里同时给调色板和样式表，
+    // 两者缺一不可：样式表负责菜单底板/条目/分隔线，调色板负责勾选标记与子菜单箭头（由基础样式绘制）。
+    const auto dress = [this, &p, &selectedText](QMenu* target)
+    {
+        QPalette qp = target->palette();
+        qp.setColor(QPalette::Window, p.surface);
+        qp.setColor(QPalette::WindowText, p.text);
+        qp.setColor(QPalette::Base, p.surface);
+        qp.setColor(QPalette::Text, p.text);
+        qp.setColor(QPalette::Button, p.surface);
+        qp.setColor(QPalette::ButtonText, p.text);
+        qp.setColor(QPalette::Highlight, p.accent);
+        qp.setColor(QPalette::HighlightedText, selectedText);
+        qp.setColor(QPalette::Light, p.surfaceAlt);
+        qp.setColor(QPalette::Mid, p.border);
+        for (QPalette::ColorRole role : {QPalette::WindowText, QPalette::Text, QPalette::ButtonText})
+        {
+            qp.setColor(QPalette::Disabled, role, p.textFaint);
+        }
+        qp.setColor(QPalette::Disabled, QPalette::Light, p.surface);
+        qp.setColor(QPalette::Disabled, QPalette::Mid, p.border);
+        target->setPalette(qp);
+        target->setFont(font(13));
+        target->setStyleSheet(
+            QStringLiteral("QMenu{background-color:%1;border:1px solid %2;border-radius:8px;padding:6px;}"
+                           "QMenu::item{background-color:transparent;color:%3;border-radius:6px;"
+                           "padding:6px 20px 6px 7px;}"
+                           "QMenu::item:selected{background-color:%4;color:%5;}"
+                           "QMenu::item:disabled{background-color:transparent;color:%6;}"
+                           // 只有尺寸、没有图案的子控件会让基础样式继续绘制勾选与箭头
+                           "QMenu::indicator{width:14px;height:14px;}"
+                           "QMenu::right-arrow{width:10px;height:10px;margin-right:2px;}"
+                           "QMenu::separator{height:1px;background-color:%2;margin:5px 8px;}")
+                .arg(p.surface.name(), p.border.name(), p.text.name(), p.accent.name(), selectedText.name(),
+                     p.textFaint.name()));
+    };
+
+    dress(menu);
+    const QList<QMenu*> descendants = menu->findChildren<QMenu*>();
+    for (QMenu* submenu : descendants)
+    {
+        dress(submenu);
+    }
 }
 
 }  // namespace kc

@@ -7,6 +7,7 @@ class QCheckBox;
 class QComboBox;
 class QKeySequenceEdit;
 class QLabel;
+class QPushButton;
 
 namespace kc
 {
@@ -22,11 +23,15 @@ public:
 
     /// 全局快捷键是否注册成功（由 Application 回填）
     void setHotkeyStatus(bool ok, const QString& message);
+    /// 数据目录变化后刷新显示（由 Application 在迁移成功后调用）
+    void refreshDataPath();
 
 signals:
     void preferencesChanged();
     void hotkeyChanged(bool enabled, const QKeySequence& sequence);
     void clearDataRequested();
+    /// @param migrateExisting true = 把当前数据搬到新目录；false = 直接改用新目录已有的数据
+    void dataDirectoryChangeRequested(const QString& dir, bool migrateExisting);
 
 private:
     QWidget* buildGeneralTab();
@@ -34,6 +39,8 @@ private:
     QWidget* buildDataTab();
     QWidget* buildAboutTab();
     void refreshAutostartState();
+    void chooseDataDirectory();
+    void requestDataDirectory(const QString& dir);
 
     Settings& m_settings;
     CounterEngine& m_engine;
@@ -53,6 +60,7 @@ private:
 
     QComboBox* m_errorMode = nullptr;
     QLabel* m_dataPath = nullptr;
+    QPushButton* m_resetDataDirButton = nullptr;
 };
 
 }  // namespace kc

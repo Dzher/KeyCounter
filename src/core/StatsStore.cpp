@@ -5,12 +5,14 @@
 #include <QDate>
 #include <QDateTime>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QStandardPaths>
+#include <QTemporaryFile>
 #include <QVariant>
 #include <QVector>
 
@@ -28,9 +30,79 @@ QString timestamp()
     return QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss"));
 }
 
+/// Windows 路径比较：大小写与分隔符都不敏感
+bool sameDirectory(const QString& a, const QString& b)
+{
+    if (a.isEmpty() || b.isEmpty())
+    {
+        return a.isEmpty() && b.isEmpty();
+    }
+    return QDir::cleanPath(QDir(a).absolutePath())
+               .compare(QDir::cleanPath(QDir(b).absolutePath()), Qt::CaseInsensitive) == 0;
+}
+
+bool copyDirectory(const QString& from, const QString& to, QString* error)
+{
+    if (!QDir().mkpath(to))
+    {
+        *error = QStringLiteral("无法创建目录：%1").arg(to);
+        return false;
+    }
+    QDirIterator it(from, QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+    while (it.hasNext())
+    {
+        const QString source = it.next();
+        const QString target = to + source.mid(from.size());
+        if (it.fileInfo().isDir())
+        {
+            if (!copyDirectory(source, target, error))
+            {
+                return false;
+            }
+        }
+        else if (!QFile::copy(source, target))
+        {
+            *error = QStringLiteral("无法复制文件：%1").arg(source);
+            return false;
+        }
+    }
+    return true;
+}
+
+/// 移动文件/目录：同卷直接改名，跨卷（如换盘）退化为复制 + 删除
+bool movePath(const QString& from, const QString& to, QString* error)
+{
+    if (QFile::rename(from, to))
+    {
+        return true;
+    }
+
+    const QFileInfo info(from);
+    if (info.isDir())
+    {
+        if (!copyDirectory(from, to, error))
+        {
+            return false;
+        }
+        QDir(from).removeRecursively();
+        return true;
+    }
+    if (!QFile::copy(from, to))
+    {
+        *error = QStringLiteral("无法移动文件：%1 → %2").arg(from, to);
+        return false;
+    }
+    if (!QFile::remove(from))
+    {
+        *error = QStringLiteral("文件已复制但无法删除源文件：%1").arg(from);
+        return false;
+    }
+    return true;
+}
+
 }  // namespace
 
-QString StatsStore::dataDir()
+QString StatsStore::defaultDataDir()
 {
     const QString exeDir = QCoreApplication::applicationDirPath();
     if (QFileInfo::exists(exeDir + QStringLiteral("/portable.flag")))
@@ -49,9 +121,115 @@ QString StatsStore::dataDir()
     return base + QStringLiteral("/keyCounter");
 }
 
+QString StatsStore::databaseFileName()
+{
+    return QStringLiteral("keycounter.db");
+}
+
+QString StatsStore::databasePathIn(const QString& dir)
+{
+    return QDir::cleanPath(dir + QLatin1Char('/') + databaseFileName());
+}
+
 QString StatsStore::defaultDatabasePath()
 {
-    return dataDir() + QStringLiteral("/keycounter.db");
+    return databasePathIn(defaultDataDir());
+}
+
+bool StatsStore::migrateDataDirectory(const QString& fromDir, const QString& toDir, bool overwrite, QString* error)
+{
+    QString ignored;
+    QString* err = (error != nullptr) ? error : &ignored;
+    *err = QString();
+
+    const QString source = QDir::cleanPath(fromDir);
+    const QString target = QDir::cleanPath(toDir);
+    if (source.isEmpty() || target.isEmpty())
+    {
+        *err = QStringLiteral("数据目录路径为空。");
+        return false;
+    }
+    if (sameDirectory(source, target))
+    {
+        return true;  // 原地不动
+    }
+    if (target.startsWith(source + QLatin1Char('/'), Qt::CaseInsensitive) ||
+        source.startsWith(target + QLatin1Char('/'), Qt::CaseInsensitive))
+    {
+        *err = QStringLiteral("新目录不能是当前数据目录的子目录（或反之）。");
+        return false;
+    }
+    if (!QDir().mkpath(target))
+    {
+        *err = QStringLiteral("无法创建目录：%1").arg(target);
+        return false;
+    }
+
+    // 可写性 / 磁盘可用的提前探测，避免搬到一半才发现盘不可写
+    QTemporaryFile probe(target + QStringLiteral("/.kc-write-probe-XXXXXX"));
+    if (!probe.open())
+    {
+        *err = QStringLiteral("目标目录不可写：%1").arg(target);
+        return false;
+    }
+    probe.close();
+
+    const QString dbName = databaseFileName();
+    const QString targetDb = target + QLatin1Char('/') + dbName;
+    if (QFile::exists(targetDb) && !overwrite)
+    {
+        *err = QStringLiteral("目标目录已有数据文件：%1").arg(targetDb);
+        return false;
+    }
+
+    // 逐项搬移；任一步失败就回滚已移动的项，保证不会出现「一半在新目录、一半在旧目录」
+    QVector<QPair<QString, QString>> moved;
+    const auto rollback = [&moved]()
+    {
+        for (auto it = moved.crbegin(); it != moved.crend(); ++it)
+        {
+            QString ignoredError;
+            movePath(it->second, it->first, &ignoredError);
+        }
+        moved.clear();
+    };
+
+    const QStringList items = {dbName, dbName + QStringLiteral("-wal"), dbName + QStringLiteral("-shm"),
+                               QStringLiteral("backup")};
+    for (const QString& item : items)
+    {
+        const QString from = source + QLatin1Char('/') + item;
+        const QString to = target + QLatin1Char('/') + item;
+        if (!QFileInfo::exists(from))
+        {
+            continue;
+        }
+        // 空的 WAL/SHM 没有搬运价值；备份目录只在目标没有时整目录搬走
+        if (item == QStringLiteral("backup"))
+        {
+            if (QFileInfo::exists(to) || QDir(from).isEmpty())
+            {
+                continue;
+            }
+        }
+        else
+        {
+            if (QFileInfo::exists(to) && !QFile::remove(to))
+            {
+                *err = QStringLiteral("无法覆盖目标文件：%1").arg(to);
+                rollback();
+                return false;
+            }
+        }
+        if (!movePath(from, to, err))
+        {
+            rollback();
+            return false;
+        }
+        moved.append({from, to});
+    }
+
+    return true;
 }
 
 StatsStore::StatsStore(QObject* parent) : QObject(parent) {}

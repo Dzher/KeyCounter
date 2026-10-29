@@ -10,6 +10,7 @@
 #include <cstdio>
 
 #include "app/Application.h"
+#include "app/Settings.h"
 #include "app/SingleInstance.h"
 #include "core/KeyCatalog.h"
 #include "core/Periods.h"
@@ -56,7 +57,9 @@ int runDump()
     attachConsole();
     QTextStream out(stdout);
 
-    const QString path = kc::StatsStore::defaultDatabasePath();
+    // 数据目录可能被用户在设置里改到别处，先把注册表设置读出来
+    kc::Settings settings;
+    const QString path = settings.databasePath();
     if (!QFileInfo::exists(path))
     {
         out << QStringLiteral("尚未生成数据文件：%1\n").arg(path);

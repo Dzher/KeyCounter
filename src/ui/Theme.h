@@ -9,6 +9,7 @@
 #include <QRectF>
 
 class QAbstractButton;
+class QMenu;
 
 namespace kc
 {
@@ -65,12 +66,18 @@ public:
     /// 给标准控件（对话框等）套上统一暗色/浅色外观
     void applyToWidget(QWidget* widget) const;
 
+    /// 给弹出菜单（托盘右键菜单等顶层 QMenu）套上主题；递归应用到已有子菜单
+    void applyToMenu(QMenu* menu) const;
+
 signals:
     void changed();
 
 private:
     Theme();
     void rebuild();
+    /// 把调色板与弹窗样式表应用到 qApp：顶层弹窗（QMessageBox / 非原生 QFileDialog / QToolTip）
+    /// 不继承主界面的样式表，不补主题就会出现「浅底 + 浅色文字」
+    void applyToApplication() const;
     static QColor systemAccent();
 
     Palette m_palette;

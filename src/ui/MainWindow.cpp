@@ -37,6 +37,7 @@ namespace
 constexpr int kTickIntervalMs = 2000;
 constexpr int kTicksPerRefresh = 8;  ///< 约 16 s 全量刷新一次（与落盘周期对齐）
 constexpr int kTopKeyCount = 12;
+constexpr int kGeometrySaveDelayMs = 600;  ///< 拖动/缩放结束后再落盘，避免频繁写注册表
 
 QToolButton* makeToolButton(QWidget* parent, const QIcon& icon, const QString& tooltip)
 {
@@ -55,6 +56,12 @@ QToolButton* makeToolButton(QWidget* parent, const QIcon& icon, const QString& t
 MainWindow::MainWindow(Settings& settings, StatsQuery& query, CounterEngine& engine, QWidget* parent)
     : QMainWindow(parent), m_settings(settings), m_query(query), m_engine(engine)
 {
+    // 几何记忆：改动后延时落盘，而不是只在关闭时才写，否则从托盘退出会丢掉刚才调好的大小
+    m_geometryTimer = new QTimer(this);
+    m_geometryTimer->setSingleShot(true);
+    m_geometryTimer->setInterval(kGeometrySaveDelayMs);
+    connect(m_geometryTimer, &QTimer::timeout, this, [this] { persistGeometry(); });
+
     buildUi();
     setPaused(m_engine.isPaused());
 
@@ -211,7 +218,6 @@ void MainWindow::buildUi()
     if (!geometry.isEmpty())
     {
         restoreGeometry(geometry);
-        m_geometryRestored = true;
     }
     m_kind = static_cast<PeriodKind>(m_settings.lastPeriod());
     m_periodSelector->setCurrentKind(static_cast<int>(m_kind));
@@ -257,8 +263,7 @@ void MainWindow::showPanel()
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
-    m_settings.setWindowGeometry(saveGeometry());
-    m_settings.sync();
+    persistGeometry();
     event->ignore();
     hide();
     if (!m_trayHintShown)
@@ -279,6 +284,40 @@ void MainWindow::hideEvent(QHideEvent* event)
 {
     QMainWindow::hideEvent(event);
     m_tickTimer->stop();
+    persistGeometry();
+}
+
+void MainWindow::resizeEvent(QResizeEvent* event)
+{
+    QMainWindow::resizeEvent(event);
+    scheduleGeometrySave();
+}
+
+void MainWindow::moveEvent(QMoveEvent* event)
+{
+    QMainWindow::moveEvent(event);
+    scheduleGeometrySave();
+}
+
+void MainWindow::changeEvent(QEvent* event)
+{
+    QMainWindow::changeEvent(event);
+    if (event->type() == QEvent::WindowStateChange)
+    {
+        scheduleGeometrySave();  // 最大化 / 还原同样要记住
+    }
+}
+
+void MainWindow::scheduleGeometrySave()
+{
+    if (m_geometryTimer != nullptr)
+    {
+        m_geometryTimer->start();
+    }
+}
+
+void MainWindow::persistGeometry()
+{
     m_settings.setWindowGeometry(saveGeometry());
     m_settings.sync();
 }
@@ -358,7 +397,7 @@ void MainWindow::updateStatusLine()
         const QString since = firstDataDay > 0 ? QDate::fromJulianDay(firstDataDay).toString(QStringLiteral("yyyy-MM-dd"))
                                                : QStringLiteral("—");
         m_footerLabel->setText(QStringLiteral("数据目录 %1 · 自 %2 起统计 · 仅保存逐键计数，不含按键内容")
-                                   .arg(StatsStore::dataDir(), since));
+                                   .arg(m_settings.resolvedDataDir(), since));
     }
 }
 
@@ -431,7 +470,8 @@ void MainWindow::updateTopKeys(const PeriodStats& stats)
                   { return a.second.press > b.second.press; });
         for (const auto& item : items.mid(0, kTopKeyCount))
         {
-            entries.append({item.first, keyLabel(item.first), item.second.press, item.second.corr});
+            const QString label = keyLabel(item.first);
+            entries.append({item.first, label, item.second.press, topKeyTooltip(label, item.second, true)});
         }
         m_topKeys->setTitle(QStringLiteral("高频键 · Top %1").arg(kTopKeyCount));
         m_topKeys->setEmptyHint(QStringLiteral("本期还没有数据"));
@@ -451,14 +491,24 @@ void MainWindow::updateTopKeys(const PeriodStats& stats)
                   { return a.second.corr > b.second.corr; });
         for (const auto& item : items.mid(0, kTopKeyCount))
         {
-            entries.append({item.first, keyLabel(item.first), item.second.corr, item.second.press});
+            const QString label = keyLabel(item.first);
+            entries.append({item.first, label, item.second.corr, topKeyTooltip(label, item.second, false)});
         }
         m_topKeys->setTitle(QStringLiteral("最常打错的键"));
         m_topKeys->setEmptyHint(QStringLiteral("还没有检测到打错后删除的按键"));
     }
 
-    m_topKeys->setEntries(entries, m_settings.heatRamp(), m_topKeysTab == 0);
+    m_topKeys->setEntries(entries, m_settings.heatRamp());
     m_topKeys->setTabs({QStringLiteral("高频"), QStringLiteral("打错")}, m_topKeysTab);
+}
+
+QString MainWindow::topKeyTooltip(const QString& label, const KeyStat& stat, bool pressPrimary)
+{
+    const QLocale locale = QLocale::system();
+    const QString press = locale.toString(static_cast<qlonglong>(stat.press));
+    const QString corr = locale.toString(static_cast<qlonglong>(stat.corr));
+    return pressPrimary ? QStringLiteral("%1\n按下 %2 次 · 打错修正 %3 次").arg(label, press, corr)
+                        : QStringLiteral("%1\n打错修正 %2 次 · 总按下 %3 次").arg(label, corr, press);
 }
 
 QVector<TrendChartWidget::Point> MainWindow::timelinePoints(const QVector<QPair<int, KeyStat>>& sparse, const Range& range)

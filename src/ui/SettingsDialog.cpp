@@ -7,6 +7,8 @@
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QDir>
+#include <QFile>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -288,23 +290,46 @@ QWidget* SettingsDialog::buildDataTab()
                            statsGroup));
     layout->addWidget(statsGroup);
 
-    auto* dataGroup = new QGroupBox(QStringLiteral("数据"), page);
+    auto* dataGroup = new QGroupBox(QStringLiteral("数据位置"), page);
     auto* dataLayout = new QVBoxLayout(dataGroup);
-    m_dataPath = new QLabel(StatsStore::dataDir(), dataGroup);
+    m_dataPath = new QLabel(dataGroup);
     m_dataPath->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_dataPath->setWordWrap(true);
     m_dataPath->setFont(Theme::instance().font(12));
     dataLayout->addWidget(m_dataPath);
+    refreshDataPath();
 
-    auto* buttons = new QHBoxLayout();
+    auto* locationButtons = new QHBoxLayout();
+    auto* changeButton = new QPushButton(QStringLiteral("更改位置…"), dataGroup);
+    connect(changeButton, &QPushButton::clicked, this, &SettingsDialog::chooseDataDirectory);
+    locationButtons->addWidget(changeButton);
+
     auto* openButton = new QPushButton(QStringLiteral("打开数据目录"), dataGroup);
     connect(openButton, &QPushButton::clicked, this,
-            []
+            [this]
             {
-                QDesktopServices::openUrl(QUrl::fromLocalFile(StatsStore::dataDir()));
+                const QDir dir(m_settings.resolvedDataDir());
+                if (dir.exists())
+                {
+                    QDesktopServices::openUrl(QUrl::fromLocalFile(dir.absolutePath()));
+                }
             });
-    buttons->addWidget(openButton);
+    locationButtons->addWidget(openButton);
 
-    auto* clearButton = new QPushButton(QStringLiteral("清空所有统计数据"), dataGroup);
+    m_resetDataDirButton = new QPushButton(QStringLiteral("恢复默认位置"), dataGroup);
+    connect(m_resetDataDirButton, &QPushButton::clicked, this,
+            [this] { requestDataDirectory(StatsStore::defaultDataDir()); });
+    locationButtons->addWidget(m_resetDataDirButton);
+    locationButtons->addStretch(1);
+    dataLayout->addLayout(locationButtons);
+    dataLayout->addWidget(hintLabel(QStringLiteral("更改位置会把现有数据（数据库与每日备份）迁移过去，原目录不再保留副本；"
+                                                   "也可以选一个已有的数据目录直接接管。默认位置：%1")
+                                        .arg(StatsStore::defaultDataDir()),
+                                    dataGroup));
+
+    auto* dangerGroup = new QGroupBox(QStringLiteral("清理"), page);
+    auto* buttons = new QHBoxLayout(dangerGroup);
+    auto* clearButton = new QPushButton(QStringLiteral("清空所有统计数据"), dangerGroup);
     connect(clearButton, &QPushButton::clicked, this,
             [this]
             {
@@ -319,13 +344,90 @@ QWidget* SettingsDialog::buildDataTab()
             });
     buttons->addWidget(clearButton);
     buttons->addStretch(1);
-    dataLayout->addLayout(buttons);
-    dataLayout->addWidget(hintLabel(QStringLiteral("只保存逐键的聚合计数（物理键 + 次数），不保存按键序列、"
-                                                   "不记录窗口标题、不联网。"),
-                                    dataGroup));
     layout->addWidget(dataGroup);
+    layout->addWidget(dangerGroup);
+    layout->addWidget(hintLabel(QStringLiteral("只保存逐键的聚合计数（物理键 + 次数），不保存按键序列、"
+                                               "不记录窗口标题、不联网。"),
+                                page));
     layout->addStretch(1);
     return page;
+}
+
+void SettingsDialog::refreshDataPath()
+{
+    if (m_dataPath == nullptr)
+    {
+        return;
+    }
+    m_dataPath->setText(QStringLiteral("%1\n（%2）")
+                            .arg(m_settings.resolvedDataDir(),
+                                 m_settings.usesCustomDataDirectory() ? QStringLiteral("自定义位置")
+                                                                      : QStringLiteral("默认位置")));
+    if (m_resetDataDirButton != nullptr)
+    {
+        m_resetDataDirButton->setEnabled(m_settings.usesCustomDataDirectory());
+    }
+}
+
+void SettingsDialog::chooseDataDirectory()
+{
+    const QString chosen = QFileDialog::getExistingDirectory(
+        this, QStringLiteral("选择数据目录"), m_settings.resolvedDataDir(),
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+    if (chosen.isEmpty())
+    {
+        return;
+    }
+    requestDataDirectory(chosen);
+}
+
+void SettingsDialog::requestDataDirectory(const QString& dir)
+{
+    const QString current = QDir::cleanPath(m_settings.resolvedDataDir());
+    const QString target = QDir::cleanPath(dir);
+    if (target.compare(current, Qt::CaseInsensitive) == 0)
+    {
+        return;  // 已经在用这个目录
+    }
+    if (target.startsWith(current + QLatin1Char('/'), Qt::CaseInsensitive) ||
+        current.startsWith(target + QLatin1Char('/'), Qt::CaseInsensitive))
+    {
+        QMessageBox::warning(this, QStringLiteral("无法使用该目录"),
+                             QStringLiteral("新目录不能是当前数据目录的子目录（或反之）。"));
+        return;
+    }
+
+    if (QFileInfo::exists(StatsStore::databasePathIn(target)))
+    {
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Question);
+        box.setWindowTitle(QStringLiteral("目标目录已有数据"));
+        box.setText(QStringLiteral("目标目录已存在统计数据：\n%1").arg(target));
+        box.setInformativeText(QStringLiteral("要迁移当前的统计数据并覆盖目标目录，还是直接接管目标目录里已有的数据？"));
+        auto* migrateButton = box.addButton(QStringLiteral("迁移并覆盖"), QMessageBox::DestructiveRole);
+        auto* adoptButton = box.addButton(QStringLiteral("使用目标数据"), QMessageBox::AcceptRole);
+        box.addButton(QStringLiteral("取消"), QMessageBox::RejectRole);
+        box.exec();
+        if (box.clickedButton() == migrateButton)
+        {
+            emit dataDirectoryChangeRequested(target, true);
+        }
+        else if (box.clickedButton() == adoptButton)
+        {
+            emit dataDirectoryChangeRequested(target, false);
+        }
+        return;
+    }
+
+    const auto answer = QMessageBox::question(
+        this, QStringLiteral("迁移数据目录"),
+        QStringLiteral("把统计数据迁移到以下目录吗？\n%1\n\n迁移期间采集会暂停片刻，完成后旧目录不再保留副本。")
+            .arg(target),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+    if (answer == QMessageBox::Yes)
+    {
+        emit dataDirectoryChangeRequested(target, true);
+    }
 }
 
 QWidget* SettingsDialog::buildAboutTab()

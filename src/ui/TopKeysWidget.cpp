@@ -43,12 +43,12 @@ QRectF TopKeysWidget::tabRect(int index) const
     return QRectF(right - tabWidth * (m_tabs.size() - index), 5.0, tabWidth - 4.0, 19.0);
 }
 
-void TopKeysWidget::setEntries(const QVector<Entry>& entries, int rampKind, bool showCorrections)
+void TopKeysWidget::setEntries(const QVector<Entry>& entries, int rampKind)
 {
     m_entries = entries.mid(0, kMaxRows);
     m_ramp = rampKind;
-    m_showCorrections = showCorrections;
     m_hover = -1;
+    setToolTip(QString());
     update();
 }
 
@@ -110,7 +110,7 @@ void TopKeysWidget::paintEvent(QPaintEvent* event)
     const double countWidth = 62.0;
     const double barLeft = chipWidth + 10.0;
     const double barRight = width() - countWidth - 6.0;
-    const double maxCount = static_cast<double>(m_entries.first().press);
+    const double maxCount = static_cast<double>(m_entries.first().count);
 
     const QLocale locale = QLocale::system();
 
@@ -130,7 +130,7 @@ void TopKeysWidget::paintEvent(QPaintEvent* event)
         // 键名徽标
         const double chipHeight = qMin(22.0, rowHeight - 4.0);
         const QRectF chip(row.left(), row.center().y() - chipHeight / 2.0, chipWidth, chipHeight);
-        const double t = (maxCount > 0.0) ? HeatRamp::normalize(entry.press, static_cast<quint32>(maxCount)) : 0.0;
+        const double t = (maxCount > 0.0) ? HeatRamp::normalize(entry.count, static_cast<quint32>(maxCount)) : 0.0;
         const QColor heat = HeatRamp::colorFor(qBound(0.15, t, 1.0), m_ramp);
         painter.setPen(Qt::NoPen);
         painter.setBrush(Theme::alpha(heat, palette.dark ? 90 : 70));
@@ -146,7 +146,7 @@ void TopKeysWidget::paintEvent(QPaintEvent* event)
         painter.setBrush(Theme::alpha(palette.text, palette.dark ? 18 : 14));
         painter.drawRoundedRect(track, barHeight / 2.0, barHeight / 2.0);
 
-        const double ratio = (maxCount > 0.0) ? qBound(0.0, static_cast<double>(entry.press) / maxCount, 1.0) : 0.0;
+        const double ratio = (maxCount > 0.0) ? qBound(0.0, static_cast<double>(entry.count) / maxCount, 1.0) : 0.0;
         QRectF fill = track;
         fill.setWidth(qMax(barHeight, track.width() * ratio));
         QLinearGradient gradient(fill.topLeft(), fill.topRight());
@@ -155,19 +155,11 @@ void TopKeysWidget::paintEvent(QPaintEvent* event)
         painter.setBrush(gradient);
         painter.drawRoundedRect(fill, barHeight / 2.0, barHeight / 2.0);
 
-        // 次数 + 错误
+        // 次数
         painter.setPen(palette.text);
         painter.setFont(Theme::instance().numberFont(12, QFont::DemiBold));
         painter.drawText(QRectF(barRight + 4.0, row.top(), countWidth - 6.0, rowHeight), Qt::AlignRight | Qt::AlignVCenter,
-                         locale.toString(static_cast<qlonglong>(entry.press)));
-
-        if (m_showCorrections && entry.corr > 0)
-        {
-            painter.setPen(palette.danger);
-            painter.setBrush(Qt::NoBrush);
-            const double dot = 3.5;
-            painter.drawEllipse(QPointF(barLeft + 4.0, row.top() + 3.5), dot, dot);
-        }
+                         locale.toString(static_cast<qlonglong>(entry.count)));
     }
 }
 
@@ -189,6 +181,7 @@ void TopKeysWidget::mouseMoveEvent(QMouseEvent* event)
     {
         m_hover = index;
         setCursor(m_hover >= 0 ? Qt::PointingHandCursor : Qt::ArrowCursor);
+        setToolTip(m_hover >= 0 ? m_entries.at(m_hover).tooltip : QString());
         update();
     }
     QWidget::mouseMoveEvent(event);
@@ -198,6 +191,7 @@ void TopKeysWidget::leaveEvent(QEvent* event)
 {
     m_hover = -1;
     setCursor(Qt::ArrowCursor);
+    setToolTip(QString());
     update();
     QWidget::leaveEvent(event);
 }

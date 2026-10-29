@@ -7,6 +7,8 @@
 #include <QSettings>
 #include <QString>
 
+class QDir;
+
 namespace kc
 {
 
@@ -57,6 +59,15 @@ public:
 
     bool backupEnabled() const;
     void setBackupEnabled(bool value);
+
+    /// 自定义数据目录；空字符串表示使用默认位置（便携模式或 %APPDATA%/keyCounter）
+    QString dataDirectory() const;
+    void setDataDirectory(const QString& dir);
+    /// 实际生效的数据目录：自定义目录优先，否则回退默认位置
+    QString resolvedDataDir() const;
+    /// 实际生效的数据库文件路径
+    QString databasePath() const;
+    bool usesCustomDataDirectory() const;
 
     bool hotkeyEnabled() const;
     void setHotkeyEnabled(bool value);

@@ -1,7 +1,10 @@
 // keyCounter - 用户设置实现
 #include "Settings.h"
 
+#include <QDir>
+
 #include "AutoStart.h"
+#include "core/StatsStore.h"
 
 namespace kc
 {
@@ -115,6 +118,43 @@ void Settings::setBackupEnabled(bool value)
 {
     m_settings.setValue(QStringLiteral("data/backup"), value);
     emit changed();
+}
+
+QString Settings::dataDirectory() const
+{
+    const QString value = m_settings.value(QStringLiteral("data/directory"), QString()).toString().trimmed();
+    return value.isEmpty() ? QString() : QDir::cleanPath(value);
+}
+
+void Settings::setDataDirectory(const QString& dir)
+{
+    const QString cleaned = dir.trimmed().isEmpty() ? QString() : QDir::cleanPath(dir.trimmed());
+    if (cleaned.isEmpty())
+    {
+        m_settings.remove(QStringLiteral("data/directory"));
+    }
+    else
+    {
+        m_settings.setValue(QStringLiteral("data/directory"), cleaned);
+    }
+    m_settings.sync();  // 迁移后立即固化，避免异常退出后回到旧路径
+    emit changed();
+}
+
+QString Settings::resolvedDataDir() const
+{
+    const QString custom = dataDirectory();
+    return custom.isEmpty() ? StatsStore::defaultDataDir() : custom;
+}
+
+QString Settings::databasePath() const
+{
+    return StatsStore::databasePathIn(resolvedDataDir());
+}
+
+bool Settings::usesCustomDataDirectory() const
+{
+    return !dataDirectory().isEmpty();
 }
 
 bool Settings::hotkeyEnabled() const

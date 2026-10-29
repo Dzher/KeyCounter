@@ -289,7 +289,7 @@ CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
 
 | 项 | 方案 |
 |----|------|
-| DB 路径 | `%APPDATA%\keyCounter\keycounter.db`（`QStandardPaths::AppDataLocation`）；若 exe 同级存在 `portable.flag` → 便携模式，数据放 exe 同级 `data\` |
+| DB 路径 | 默认 `%APPDATA%\keyCounter\keycounter.db`（`QStandardPaths::AppDataLocation`）；若 exe 同级存在 `portable.flag` → 便携模式，数据放 exe 同级 `data\`；用户可在设置中指定任意数据目录（`data/directory` 存注册表），更改时自动迁移数据库 + WAL/SHM + `backup\`，失败回滚并继续用旧目录 |
 | 启动自检 | `PRAGMA quick_check`（小库 < 5 ms）；失败 → 将库重命名为 `keycounter.corrupt-<yyyymmdd-HHmmss>.db` 并新建，托盘气泡提示（**绝不静默丢数据**） |
 | 备份 | 每次会话首个 flush 前，若当天尚未备份 → 复制到 `backup\keycounter-<yyyymmdd>.db`，保留最近 7 份（可关闭） |
 | 迁移 | `PRAGMA user_version` 递增；v0→v1 建表；后续 `ALTER TABLE` 逐步迁移，全程单事务 |

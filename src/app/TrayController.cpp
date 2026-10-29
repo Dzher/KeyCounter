@@ -45,7 +45,13 @@ TrayController::TrayController(Settings& settings, CounterEngine& engine, StatsQ
     connect(m_menu, &QMenu::aboutToShow, this, &TrayController::rebuildMenu);
     m_tray->setContextMenu(m_menu);
 
-    connect(&Theme::instance(), &Theme::changed, this, &TrayController::refresh);
+    connect(&Theme::instance(), &Theme::changed, this,
+            [this]
+            {
+                // 深/浅色切换后重新配色（菜单是顶层弹出控件，不会自动跟随）
+                Theme::instance().applyToMenu(m_menu);
+                refresh();
+            });
 
     m_iconTimer = new QTimer(this);
     m_iconTimer->setInterval(kIconRefreshMs);
@@ -136,8 +142,19 @@ void TrayController::refresh()
 
 void TrayController::rebuildMenu()
 {
+    // 每次弹出都重建菜单；QMenu::clear() 只删 action，不会删掉子菜单控件，
+    // 必须在清空前显式释放上一轮的子菜单（连同其 QActionGroup），否则每次右键都留下孤儿控件
+    const QList<QMenu*> staleSubmenus = m_menu->findChildren<QMenu*>(QString(), Qt::FindDirectChildrenOnly);
+    for (QMenu* submenu : staleSubmenus)
+    {
+        delete submenu;
+    }
     m_menu->clear();
-    const Palette& palette = Theme::instance().palette();
+    m_pauseMenu = nullptr;
+    m_layoutMenu = nullptr;
+    m_pauseGroup = nullptr;
+    m_layoutGroup = nullptr;
+
     const QLocale locale = QLocale::system();
 
     auto* openAction = m_menu->addAction(QStringLiteral("打开统计面板"));
@@ -211,7 +228,8 @@ void TrayController::rebuildMenu()
     auto* quitAction = m_menu->addAction(QStringLiteral("退出 keyCounter"));
     connect(quitAction, &QAction::triggered, this, &TrayController::quitRequested);
 
-    Q_UNUSED(palette);
+    // 子菜单是本轮新建的，配色要放在最后统一套用
+    Theme::instance().applyToMenu(m_menu);
 }
 
 void TrayController::showMessage(const QString& title, const QString& body, bool warning)

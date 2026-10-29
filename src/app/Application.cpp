@@ -2,6 +2,7 @@
 #include "Application.h"
 
 #include <QApplication>
+#include <QDir>
 #include <QFileInfo>
 #include <QMessageBox>
 #include <QThread>
@@ -32,6 +33,9 @@ bool Application::initialize(const QStringList& arguments, QString* error)
     qRegisterMetaType<kc::DayBatch>("kc::DayBatch");
 
     m_settings = new Settings(this);
+    // 数据位置：自定义目录优先（用户可能在迁移后重启），否则 %APPDATA%/keyCounter 或便携模式
+    m_dataDir = m_settings->resolvedDataDir();
+    m_dbPath = StatsStore::databasePathIn(m_dataDir);
     Theme::instance().setMode(static_cast<int>(m_settings->themeMode()));
     // 自启自愈：便携版移动目录后自动修正注册表里的路径
     if (m_settings->autostart())
@@ -78,6 +82,15 @@ bool Application::initialize(const QStringList& arguments, QString* error)
             });
 
     m_window = new MainWindow(*m_settings, *m_query, *m_engine);
+    // 从托盘退出时窗口未必收过 close/hide 事件，退出前再存一次几何
+    connect(qApp, &QCoreApplication::aboutToQuit, this,
+            [this]
+            {
+                if (m_window != nullptr)
+                {
+                    m_window->persistGeometry();
+                }
+            });
     connect(m_window, &MainWindow::settingsRequested, this, &Application::openSettings);
     connect(m_window, &MainWindow::pauseToggleRequested, this,
             [this]
@@ -124,7 +137,7 @@ void Application::startStoreThread()
     m_store = new StatsStore();
     m_store->moveToThread(m_storeThread);
 
-    const QString dbPath = StatsStore::defaultDatabasePath();
+    const QString dbPath = m_dbPath;
     connect(m_storeThread, &QThread::started, m_store, [this, dbPath] { m_store->open(dbPath); });
     connect(m_engine, &CounterEngine::batchReady, m_store, &StatsStore::applyBatch);
     connect(m_store, &StatsStore::opened, this, &Application::onStoreOpened);
@@ -153,7 +166,7 @@ void Application::onStoreOpened(bool ok, const QString& error, int firstDataDay)
     }
 
     QString queryError;
-    if (!m_query->open(StatsStore::defaultDatabasePath(), &queryError))
+    if (!m_query->open(m_dbPath, &queryError))
     {
         m_tray->showMessage(QStringLiteral("读取统计数据失败"), queryError, true);
         return;
@@ -219,6 +232,78 @@ void Application::onPauseRequested(int minutes)
     }
 }
 
+bool Application::switchDataDirectory(const QString& dir, bool migrateExisting, QString* error)
+{
+    QString ignored;
+    QString* err = (error != nullptr) ? error : &ignored;
+    *err = QString();
+
+    // QDir::cleanPath 会统一分隔符（Windows 下 \ → /），便于后续字符串比较
+    const QString target = QDir::cleanPath(dir);
+    if (target.isEmpty())
+    {
+        *err = QStringLiteral("目录为空。");
+        return false;
+    }
+    const QString source = m_dataDir;
+    if (target.compare(source, Qt::CaseInsensitive) == 0)
+    {
+        return true;
+    }
+
+    // 存储线程可能还有排队中的批次：先落盘，再关库（否则 Windows 下文件被占用无法移动）。
+    // 整个迁移在同一轮事件循环里完成，期间按键仍累加在引擎内存中，随下一次落盘写进新库。
+    if (m_engine != nullptr)
+    {
+        m_engine->flush();
+    }
+    if (m_store != nullptr)
+    {
+        QMetaObject::invokeMethod(m_store, "flush", Qt::BlockingQueuedConnection);
+        QMetaObject::invokeMethod(m_store, "shutdown", Qt::BlockingQueuedConnection);
+    }
+    if (m_query != nullptr)
+    {
+        m_query->close();
+    }
+
+    const auto reopenOld = [this, &source]
+    {
+        m_dataDir = source;
+        m_dbPath = StatsStore::databasePathIn(source);
+        reopenStore(m_dbPath);
+    };
+
+    if (!QDir().mkpath(target))
+    {
+        *err = QStringLiteral("无法创建目录：%1").arg(target);
+        reopenOld();
+        return false;
+    }
+    if (migrateExisting && !StatsStore::migrateDataDirectory(source, target, true, err))
+    {
+        reopenOld();
+        return false;
+    }
+
+    m_dataDir = target;
+    m_dbPath = StatsStore::databasePathIn(target);
+    // 选回默认位置时清掉自定义项，让便携模式/默认规则继续生效
+    const QString defaultDir = QDir::cleanPath(StatsStore::defaultDataDir());
+    m_settings->setDataDirectory(target.compare(defaultDir, Qt::CaseInsensitive) == 0 ? QString() : target);
+    reopenStore(m_dbPath);
+    return true;
+}
+
+void Application::reopenStore(const QString& dbPath)
+{
+    if (m_store == nullptr)
+    {
+        return;
+    }
+    QMetaObject::invokeMethod(m_store, "open", Qt::QueuedConnection, Q_ARG(QString, dbPath));
+}
+
 void Application::applyHotkey()
 {
     const bool enabled = m_settings->hotkeyEnabled();
@@ -281,6 +366,26 @@ void Application::openSettings()
                     {
                         QMetaObject::invokeMethod(m_store, "clearAll", Qt::QueuedConnection);
                     }
+                });
+        connect(m_settingsDialog, &SettingsDialog::dataDirectoryChangeRequested, this,
+                [this](const QString& dir, bool migrateExisting)
+                {
+                    QString error;
+                    if (!switchDataDirectory(dir, migrateExisting, &error))
+                    {
+                        QMessageBox::warning(m_settingsDialog, QStringLiteral("切换数据目录失败"), error);
+                        return;
+                    }
+                    if (m_settingsDialog != nullptr)
+                    {
+                        m_settingsDialog->refreshDataPath();
+                    }
+                    if (m_window != nullptr)
+                    {
+                        m_window->refresh();
+                    }
+                    m_tray->showMessage(QStringLiteral("数据目录已切换"),
+                                        QStringLiteral("当前数据目录：%1").arg(m_dataDir));
                 });
     }
     m_settingsDialog->setHotkeyStatus(m_monitor->isRunning(), QString());

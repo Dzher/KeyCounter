@@ -21,6 +21,8 @@ public:
     ~StatsQuery() override;
 
     bool open(const QString& dbPath, QString* error = nullptr);
+    /// 释放连接（切换数据目录前必须调用，否则 Windows 下文件被占用）
+    void close();
     bool isOpen() const noexcept { return m_open; }
 
     /// 区间聚合（命中缓存时不触库）；数据量很小，GUI 线程同步查询可接受

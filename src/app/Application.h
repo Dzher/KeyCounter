@@ -43,6 +43,11 @@ private:
     void applyHotkey();
     void openSettings();
 
+    /// 切换数据目录：先把待落盘数据交给存储线程并关库，再搬移文件、切换设置、重新打开
+    /// @param migrateExisting true = 把当前数据搬到新目录；false = 直接接管新目录已有的数据
+    bool switchDataDirectory(const QString& dir, bool migrateExisting, QString* error);
+    void reopenStore(const QString& dbPath);
+
     Settings* m_settings = nullptr;
     CounterEngine* m_engine = nullptr;
     RawInputMonitor* m_monitor = nullptr;
@@ -54,6 +59,8 @@ private:
     SettingsDialog* m_settingsDialog = nullptr;
     QTimer* m_pauseTimer = nullptr;
 
+    QString m_dataDir;  ///< 生效的数据目录（可能是自定义位置）
+    QString m_dbPath;   ///< 生效的数据库路径
     QDateTime m_pauseUntil;
     bool m_pausedIndefinitely = false;
     bool m_shuttingDown = false;
